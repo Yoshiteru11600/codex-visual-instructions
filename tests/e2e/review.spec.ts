@@ -61,6 +61,38 @@ test("records mouse drag and resize as visual deltas", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => (window as any).visualReview.session.annotations.at(-1)?.operation.type)).toBe("resize");
 });
 
+test("clear cancels an in-progress resize without recording it", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const target = page.locator("#intro");
+  await target.click();
+  const handle = await page.locator("[data-codex-visual-instructions] .resize").boundingBox();
+  expect(handle).not.toBeNull();
+  await page.mouse.move(handle!.x + 5, handle!.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(handle!.x + 45, handle!.y + 30);
+  await expect(target).toHaveAttribute("style", /width:/);
+  await page.evaluate(() => (window as any).visualReview.clear());
+  await page.mouse.up();
+  expect(await target.getAttribute("style")).toBeNull();
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(0);
+});
+
+test("destroy cancels an in-progress resize and removes the overlay", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const target = page.locator("#intro");
+  await target.click();
+  const handle = await page.locator("[data-codex-visual-instructions] .resize").boundingBox();
+  expect(handle).not.toBeNull();
+  await page.mouse.move(handle!.x + 5, handle!.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(handle!.x + 45, handle!.y + 30);
+  await expect(target).toHaveAttribute("style", /height:/);
+  await page.evaluate(() => (window as any).visualReview.destroy());
+  await page.mouse.up();
+  expect(await target.getAttribute("style")).toBeNull();
+  await expect(page.locator("[data-codex-visual-instructions]")).toHaveCount(0);
+});
+
 test("requires a warning and high-risk metadata for remove previews", async ({ page }) => {
   await page.evaluate(() => (window as any).visualReview.start());
   await page.locator("#intro").click();

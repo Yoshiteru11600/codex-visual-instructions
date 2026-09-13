@@ -411,8 +411,18 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     document.removeEventListener("submit", blockSubmit, true);
     window.open = originalOpen;
   };
+  let resize: { target: HTMLElement; startX: number; startY: number; before: RectSnapshot; beforeWidth: string; beforeHeight: string; hadStyleAttribute: boolean } | null = null;
+  const cancelResizePreview = (): void => {
+    if (!resize) return;
+    const current = resize;
+    resize = null;
+    current.target.style.width = current.beforeWidth;
+    current.target.style.height = current.beforeHeight;
+    if (!current.hadStyleAttribute && current.target.getAttribute("style") === "") current.target.removeAttribute("style");
+    updateBoxes();
+  };
   function start(): void { if (active) return; active = true; originalOpen = window.open; attachReviewListeners(); render(); }
-  function stop(): void { if (!active) return; active = false; detachReviewListeners(); hoverTarget = null; render(); }
+  function stop(): void { cancelResizePreview(); if (!active) return; active = false; detachReviewListeners(); hoverTarget = null; render(); }
 
   const setCompare = (mode: CompareMode): void => {
     compareMode = mode;
@@ -430,11 +440,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     persist();
   };
 
-  let resize: { target: HTMLElement; startX: number; startY: number; before: RectSnapshot; beforeWidth: string; beforeHeight: string } | null = null;
   resizeHandle.addEventListener("pointerdown", (event) => {
     const target = selected.at(-1); if (!target) return;
     event.preventDefault(); event.stopPropagation();
-    resize = { target, startX: event.clientX, startY: event.clientY, before: rectOf(target), beforeWidth: target.style.width, beforeHeight: target.style.height };
+    resize = { target, startX: event.clientX, startY: event.clientY, before: rectOf(target), beforeWidth: target.style.width, beforeHeight: target.style.height, hadStyleAttribute: target.hasAttribute("style") };
     resizeHandle.setPointerCapture(event.pointerId);
   });
   resizeHandle.addEventListener("pointermove", (event) => {
@@ -445,9 +454,9 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   });
   resizeHandle.addEventListener("pointerup", () => {
     if (!resize) return;
-    const current = resize; resize = null;
+    const current = resize;
     const afterWidth = current.target.style.width; const afterHeight = current.target.style.height; const after = rectOf(current.target);
-    current.target.style.width = current.beforeWidth; current.target.style.height = current.beforeHeight;
+    cancelResizePreview();
     const instruction = newInstruction(current.target, { type: "resize", before: current.before, after });
     executeVisual({ label: "resize", instruction, apply: () => { current.target.style.width = afterWidth; current.target.style.height = afterHeight; updateBoxes(); }, revert: () => { current.target.style.width = current.beforeWidth; current.target.style.height = current.beforeHeight; updateBoxes(); } });
   });
@@ -562,6 +571,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   });
 
   function clear(): void {
+    cancelResizePreview();
     while (history.canUndo) history.undo();
     history.clear(); restorePreviewTransforms(); session.annotations = []; selected = []; storage.clear(); render();
   }
