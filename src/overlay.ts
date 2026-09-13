@@ -343,6 +343,14 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   };
 
   let drag: { target: HTMLElement; startX: number; startY: number; from: { x: number; y: number }; before: RectSnapshot; moved: boolean } | null = null;
+  let canceledDragTarget: HTMLElement | null = null;
+  const cancelDragPreview = (): void => {
+    if (!drag) return;
+    const current = drag;
+    drag = null;
+    canceledDragTarget = current.moved ? current.target : null;
+    applyPreviewTransform(current.target, current.from);
+  };
   const onPointerDown = (event: PointerEvent): void => {
     if (!active || event.composedPath().includes(host) || !(event.target instanceof HTMLElement)) return;
     if (selected.includes(event.target) && event.button === 0) {
@@ -358,7 +366,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     applyPreviewTransform(drag.target, { x: drag.from.x + dx, y: drag.from.y + dy });
   };
   const onPointerUp = (event: PointerEvent): void => {
-    if (!drag) return;
+    if (!drag) {
+      if (canceledDragTarget) window.setTimeout(() => { canceledDragTarget = null; }, 0);
+      return;
+    }
     const current = drag; drag = null;
     if (current.moved) {
       const to = { x: current.from.x + event.clientX - current.startX, y: current.from.y + event.clientY - current.startY };
@@ -369,6 +380,11 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
 
   const onClick = (event: MouseEvent): void => {
     if (!active || event.composedPath().includes(host)) return;
+    if (canceledDragTarget && event.composedPath().includes(canceledDragTarget)) {
+      canceledDragTarget = null;
+      event.preventDefault(); event.stopImmediatePropagation();
+      return;
+    }
     event.preventDefault(); event.stopImmediatePropagation();
     const candidate = event.target instanceof Element ? event.target : null;
     if (!isSelectable(candidate, host)) return;
@@ -382,7 +398,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     const command = commandForEvent(event, config.shortcuts);
     if (command && commands.execute(command)) { event.preventDefault(); event.stopImmediatePropagation(); return; }
     if (!active) return;
-    if (event.key === "Escape") { drag = null; selected = []; hoverTarget = null; render(); event.preventDefault(); return; }
+    if (event.key === "Escape") { cancelDragPreview(); cancelResizePreview(); selected = []; hoverTarget = null; render(); event.preventDefault(); return; }
     if (event.key.startsWith("Arrow") && !event.altKey && !event.ctrlKey && !event.metaKey) {
       const step = event.shiftKey ? 10 : 1;
       const delta: Record<string, [number, number]> = { ArrowUp: [0, -step], ArrowDown: [0, step], ArrowLeft: [-step, 0], ArrowRight: [step, 0] };
@@ -422,7 +438,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     updateBoxes();
   };
   function start(): void { if (active) return; active = true; originalOpen = window.open; attachReviewListeners(); render(); }
-  function stop(): void { cancelResizePreview(); if (!active) return; active = false; detachReviewListeners(); hoverTarget = null; render(); }
+  function stop(): void { cancelDragPreview(); cancelResizePreview(); if (!active) return; active = false; detachReviewListeners(); hoverTarget = null; render(); }
 
   const setCompare = (mode: CompareMode): void => {
     compareMode = mode;
@@ -571,6 +587,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   });
 
   function clear(): void {
+    cancelDragPreview();
     cancelResizePreview();
     while (history.canUndo) history.undo();
     history.clear(); restorePreviewTransforms(); session.annotations = []; selected = []; storage.clear(); render();

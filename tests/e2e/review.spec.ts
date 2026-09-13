@@ -93,6 +93,51 @@ test("destroy cancels an in-progress resize and removes the overlay", async ({ p
   await expect(page.locator("[data-codex-visual-instructions]")).toHaveCount(0);
 });
 
+test("Escape cancels an in-progress drag without undoing committed history", async ({ page }) => {
+  await page.evaluate(() => {
+    const target = document.querySelector<HTMLElement>("#intro")!;
+    target.style.transform = "rotate(3deg)";
+    (window as any).visualReview.start();
+  });
+  const target = page.locator("#intro");
+  await target.click();
+  const beforeBox = await target.boundingBox();
+  const beforeStyle = await target.getAttribute("style");
+  expect(beforeBox).not.toBeNull();
+  await page.mouse.move(beforeBox!.x + 20, beforeBox!.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(beforeBox!.x + 60, beforeBox!.y + 45);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  expect(await target.getAttribute("style")).toBe(beforeStyle);
+  const afterBox = await target.boundingBox();
+  expect(afterBox!.x).toBeCloseTo(beforeBox!.x, 0);
+  expect(afterBox!.y).toBeCloseTo(beforeBox!.y, 0);
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(0);
+  expect(await page.locator("[data-codex-visual-instructions]").evaluate((host: any) => host.shadowRoot.querySelectorAll(".selection").length)).toBe(0);
+});
+
+test("Escape cancels an in-progress resize and clears selection", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const target = page.locator("#intro");
+  await target.click();
+  const beforeBox = await target.boundingBox();
+  const handle = await page.locator("[data-codex-visual-instructions] .resize").boundingBox();
+  expect(beforeBox).not.toBeNull();
+  expect(handle).not.toBeNull();
+  await page.mouse.move(handle!.x + 5, handle!.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(handle!.x + 45, handle!.y + 30);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  expect(await target.getAttribute("style")).toBeNull();
+  const afterBox = await target.boundingBox();
+  expect(afterBox!.width).toBeCloseTo(beforeBox!.width, 0);
+  expect(afterBox!.height).toBeCloseTo(beforeBox!.height, 0);
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(0);
+  expect(await page.locator("[data-codex-visual-instructions]").evaluate((host: any) => host.shadowRoot.querySelectorAll(".selection").length)).toBe(0);
+});
+
 test("requires a warning and high-risk metadata for remove previews", async ({ page }) => {
   await page.evaluate(() => (window as any).visualReview.start());
   await page.locator("#intro").click();
