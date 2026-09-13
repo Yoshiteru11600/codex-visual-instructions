@@ -7,7 +7,7 @@ export const fr: Record<keyof typeof en, string> = {
   comment: "Commentaire", intent: "Pourquoi ?", precision: "Précision", scope: "Portée",
   compare: "Comparer", viewport: "Fenêtre", alignLeft: "Aligner à gauche",
   equalSpacing: "Espacement égal", sessionCount: "instructions",
-  requestChanges: "Demander les modifications dans Codex", editInstructions: "Modifier les instructions",
-  handoffReady: "✓ Prêt pour Codex",
+  requestChanges: "Confirmer les instructions pour Codex", editInstructions: "Annuler la confirmation et modifier",
+  handoffReady: "✓ Instructions confirmées. Demandez à Codex de les implémenter.",
   removeWarning: "Cet élément peut être référencé par JavaScript, des gestionnaires d'événements, des relations ARIA, des formulaires ou l'état du framework. L'aperçu ne garantit pas le comportement après suppression. Codex doit inspecter les dépendances source avant l'implémentation.",
 };

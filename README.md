@@ -42,11 +42,11 @@ For a vanilla page, load the ESM build from your dev server and call `install()`
 2. Click an element; Shift-click to build a multi-selection.
 3. Drag, resize, nudge, replace text, hide, or preview removal.
 4. Attach an intent category, comment, precision, and viewport scope.
-5. Select **Request changes in Codex** to mark the session ready.
+5. Select **Confirm instructions for Codex** to mark the session ready.
 6. Ask Codex to implement the current visual review session.
 7. Codex reads the Site Tools payload, investigates source, implements compatible instructions together, reloads, verifies, and marks completed items resolved.
 
-Visual instructions start as `draft`. **Request changes in Codex** marks a non-empty session as `ready` and records its submission time; it does not send an HTTP request or contact an external API. A specification-changing edit returns the session to `draft`, while panel, locale, and comparison-view changes do not. The payload contains a simple operation summary, multi-signal element fingerprints, before/after operation data, visual intent, risk, verification requirements, and a shared implementation instruction.
+Visual instructions start as `draft`. **Confirm instructions for Codex** marks a non-empty session as `ready` and records its confirmation time; it does not send an HTTP request or contact an external API. A specification-changing edit returns the session to `draft`, while panel, locale, and comparison-view changes do not. The payload contains a simple operation summary, multi-signal element fingerprints, before/after operation data, visual intent, risk, verification requirements, and a shared implementation instruction.
 
 The browser preview is a visual specification, not a literal source patch. Codex must inspect the real project structure and implement the intent using its existing layout, components, tokens, and responsive conventions. The tool deliberately does not attempt DOM-to-React/Vue/Svelte source mapping.
 
