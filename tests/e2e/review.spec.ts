@@ -94,3 +94,74 @@ test("switches original/overlay modes, viewport guides, and configured shortcuts
   await page.keyboard.press("Alt+Q");
   await expect.poll(() => page.evaluate(() => (window as any).visualReview.active)).toBe(true);
 });
+
+test("renders page metadata as text and preserves existing transforms", async ({ page }) => {
+  await page.evaluate(() => {
+    const target = document.createElement("a");
+    target.id = "hostile-metadata";
+    target.href = `javascript:"><img src=x onerror=alert(1)>`;
+    target.textContent = `<img src=x onerror=alert(1)> & < > " '`;
+    target.style.cssText = "display:block;width:240px;height:40px;transform:translateX(-50%) rotate(5deg)";
+    document.body.prepend(target);
+    (window as any).visualReview.start();
+  });
+  await page.locator("#hostile-metadata").click();
+  const metadata = await page.locator("[data-codex-visual-instructions]").evaluate((host: any) => {
+    const meta = host.shadowRoot.querySelector("[data-meta]");
+    return { text: meta.textContent, injectedImages: meta.querySelectorAll("img").length };
+  });
+  expect(metadata.injectedImages).toBe(0);
+  expect(metadata.text).toContain("<img src=x onerror=alert(1)>");
+  const original = await page.locator("#hostile-metadata").getAttribute("style");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#hostile-metadata")).toHaveCSS("transform", /matrix/);
+  await page.evaluate(() => (window as any).visualReview.undo());
+  expect(await page.locator("#hostile-metadata").getAttribute("style")).toBe(original);
+
+  await page.evaluate(() => {
+    const style = document.createElement("style"); style.textContent = ".computed-transform { transform: scale(1.1) rotate(3deg); }";
+    const target = document.createElement("div"); target.id = "computed-transform"; target.className = "computed-transform"; target.textContent = "Computed";
+    document.head.append(style); document.body.prepend(target);
+  });
+  const beforeComputed = await page.locator("#computed-transform").evaluate((element) => getComputedStyle(element).transform);
+  await page.locator("#computed-transform").evaluate((element) => element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+  await page.keyboard.press("ArrowDown");
+  await page.evaluate(() => (window as any).visualReview.clear());
+  expect(await page.locator("#computed-transform").getAttribute("style")).toBeNull();
+  expect(await page.locator("#computed-transform").evaluate((element) => getComputedStyle(element).transform)).toBe(beforeComputed);
+});
+
+test("uses configured initial comparison and edits only an unambiguous direct text node", async ({ page }) => {
+  await page.evaluate(async () => {
+    (window as any).visualReview.destroy();
+    const modulePath = "/dist/index.js";
+    const { install } = await import(modulePath);
+    (window as any).visualReview = install({ startActive: true, config: { review: { defaultCompareMode: "overlay" } } });
+    const button = document.createElement("button");
+    button.id = "icon-button";
+    button.innerHTML = "<svg data-icon></svg>Save";
+    document.body.prepend(button);
+  });
+  const frameClass = await page.locator("[data-codex-visual-instructions]").evaluate((host: any) => host.shadowRoot.querySelector("iframe").className);
+  expect(frameClass).toContain("overlay");
+  await page.locator("#icon-button").evaluate((element) => {
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  await page.locator("[data-codex-visual-instructions]").evaluate((host: any) => {
+    const input = host.shadowRoot.querySelector("[data-text-input]"); input.value = "Store";
+    host.shadowRoot.querySelector('[data-action="text"]').click();
+  });
+  await expect(page.locator("#icon-button [data-icon]")).toHaveCount(1);
+  await expect(page.locator("#icon-button")).toContainText("Store");
+
+  await page.evaluate(() => {
+    const complex = document.createElement("div"); complex.id = "complex-text";
+    complex.innerHTML = "<span>Title</span><small>Sub</small>";
+    document.body.prepend(complex);
+  });
+  await page.locator("#complex-text").evaluate((element) => {
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  const disabled = await page.locator("[data-codex-visual-instructions]").evaluate((host: any) => host.shadowRoot.querySelector('[data-action="text"]').disabled);
+  expect(disabled).toBe(true);
+});

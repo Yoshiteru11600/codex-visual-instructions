@@ -87,6 +87,13 @@ const viewportInfo = (preset: ViewportPreset): ViewportInfo => ({
   preset,
 });
 
+const editableDirectText = (element: HTMLElement): Text | null => {
+  const textNodes = [...element.childNodes].filter(
+    (node): node is Text => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim()),
+  );
+  return textNodes.length === 1 ? textNodes[0]! : null;
+};
+
 export function createOverlay(options: InstallOptions = {}): VisualReviewHandle {
   const existing = document.querySelector<HTMLElement>(`[${HOST_ATTRIBUTE}]`);
   if (existing) throw new Error("codex-visual-instructions is already installed on this page");
@@ -97,7 +104,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   let locale = resolveLocale(config.locale);
   let messages = getMessages(locale);
   let active = false;
-  let compareMode: CompareMode = "edited";
+  let compareMode: CompareMode = config.review.defaultCompareMode;
   let preset: ViewportPreset = config.review.defaultViewport;
   let selected: HTMLElement[] = [];
   let hoverTarget: HTMLElement | null = null;
@@ -105,7 +112,8 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   let comment = "";
   let precision: Precision = "approximate";
   let applyScope: ApplyScope = "current-viewport";
-  const runtimeDeltas = new WeakMap<HTMLElement, { x: number; y: number }>();
+  const runtimeDeltas = new Map<HTMLElement, { x: number; y: number }>();
+  const transformStates = new Map<HTMLElement, { inline: string; computed: string; hadStyleAttribute: boolean }>();
   const originalSnapshot = sanitizeSnapshot(document.documentElement);
   const history = new HistoryStack();
   const commands = new CommandRegistry();
@@ -138,13 +146,13 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
         <div class="row"><button data-action="undo" data-i18n="undo"></button><button data-action="redo" data-i18n="redo"></button><button data-action="clear-selection" data-i18n="clear"></button></div>
         <div class="meta" data-meta></div>
         <div class="row"><button data-action="hide" data-i18n="hide"></button><button class="danger" data-action="remove" data-i18n="remove"></button><button data-action="align" data-i18n="alignLeft"></button><button data-action="spacing" data-i18n="equalSpacing"></button></div>
-        <label><span data-i18n="editText"></span><div class="row"><input data-text-input type="text" autocomplete="off"><button data-action="text" data-i18n="applyText"></button></div></label>
+        <label><span data-i18n="editText"></span><div class="row"><input data-text-input type="text" autocomplete="off"><button data-action="text" data-i18n="applyText"></button></div><small class="hint" data-text-warning></small></label>
         <label><span data-i18n="intent"></span><select data-intent><option value="spacing">Spacing</option><option value="alignment">Alignment</option><option value="visual-hierarchy">Visual hierarchy</option><option value="responsive">Responsive</option><option value="copy">Copy</option><option value="visibility">Visibility</option><option value="interaction">Interaction</option><option value="exact-position">Exact position</option><option value="other" selected>Other</option></select></label>
         <label><span data-i18n="comment"></span><textarea data-comment maxlength="1000"></textarea></label>
         <div class="row"><label><span data-i18n="precision"></span><select data-precision><option value="exact">Exact</option><option value="approximate" selected>Approximate</option><option value="relationship">Relationship</option><option value="intent-only">Intent only</option></select></label><label><span data-i18n="scope"></span><select data-scope><option value="current-viewport">Current viewport</option><option value="current-breakpoint">Current breakpoint</option><option value="all-narrower">All narrower</option><option value="all-wider">All wider</option><option value="all-viewports">All viewports</option></select></label></div>
         <div class="row"><label><span data-i18n="compare"></span><select data-compare><option value="edited">Edited</option><option value="original">Original</option><option value="side-by-side">Side by side</option><option value="overlay">Overlay</option></select></label><label><span data-i18n="viewport"></span><select data-viewport><option value="desktop">Desktop</option><option value="tablet">Tablet</option><option value="mobile">Mobile</option><option value="custom">Custom</option></select></label></div>
         <div class="row"><label>Language<select data-locale><option value="auto">Auto</option><option value="en">English</option><option value="ja">日本語</option><option value="fr">Français</option><option value="ru">Русский</option></select></label></div>
-        <label>Toggle shortcut<div class="row"><input data-shortcut-input value="${config.shortcuts["review.toggle"] ?? "Alt+Shift+R"}"><button data-action="save-shortcut">Save</button></div><small class="hint" data-shortcut-warning></small></label>
+        <label>Toggle shortcut<div class="row"><input data-shortcut-input><button data-action="save-shortcut">Save</button></div><small class="hint" data-shortcut-warning></small></label>
         <p class="hint">Alt+Shift+Arrow: DOM traversal · Arrow: 1px · Shift+Arrow: 10px · Esc: clear/cancel</p>
       </div>
     </section>
@@ -168,8 +176,11 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const meta = $("[data-meta]") as HTMLElement;
   const textInput = $("[data-text-input]") as HTMLInputElement;
   const shortcutInput = $("[data-shortcut-input]") as HTMLInputElement;
+  const textButton = shadow.querySelector<HTMLButtonElement>("[data-action=text]")!;
+  const textWarning = $("[data-text-warning]") as HTMLElement;
 
   compareFrame.srcdoc = originalSnapshot;
+  shortcutInput.value = config.shortcuts["review.toggle"] ?? "Alt+Shift+R";
 
   const persist = (): void => { session.viewport = viewportInfo(preset); storage.save(session); render(); };
   const saveLocalPreference = (patch: Record<string, unknown>): void => {
@@ -219,15 +230,54 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     launcher.hidden = active;
     $("[data-count]").textContent = `${session.annotations.length} ${messages.sessionCount}`;
     const primary = selected.at(-1);
-    meta.innerHTML = primary
-      ? `<strong>${messages.selected}</strong><br><code>&lt;${primary.tagName.toLowerCase()}${primary.id ? `#${primary.id}` : ""}&gt;</code><br>${safeTextSummary(primary) ?? ""}${primary instanceof HTMLAnchorElement ? `<br>Target: ${primary.getAttribute("href") ?? ""}` : ""}`
-      : messages.noSelection;
-    textInput.value = primary ? (safeTextSummary(primary, 500) ?? "") : "";
+    meta.replaceChildren();
+    if (primary) {
+      const heading = document.createElement("strong");
+      heading.textContent = messages.selected;
+      const code = document.createElement("code");
+      code.textContent = `<${primary.tagName.toLowerCase()}${primary.id ? `#${primary.id}` : ""}>`;
+      meta.append(heading, document.createElement("br"), code);
+      const summary = safeTextSummary(primary);
+      if (summary) meta.append(document.createElement("br"), document.createTextNode(summary));
+      if (primary instanceof HTMLAnchorElement) meta.append(document.createElement("br"), document.createTextNode(`Target: ${primary.getAttribute("href") ?? ""}`));
+    } else meta.textContent = messages.noSelection;
+    const editableText = primary ? editableDirectText(primary) : null;
+    textInput.value = editableText?.data ?? "";
+    textInput.disabled = !editableText;
+    textButton.disabled = !editableText;
+    textWarning.textContent = primary && !editableText ? "Text editing is available only for one unambiguous direct text node." : "";
     shadow.querySelector<HTMLButtonElement>("[data-action=undo]")!.disabled = !history.canUndo;
     shadow.querySelector<HTMLButtonElement>("[data-action=redo]")!.disabled = !history.canRedo;
     shadow.querySelector<HTMLButtonElement>("[data-action=align]")!.disabled = selected.length < 2;
     shadow.querySelector<HTMLButtonElement>("[data-action=spacing]")!.disabled = selected.length < 3;
     updateBoxes();
+  };
+
+  const applyPreviewTransform = (element: HTMLElement, value: { x: number; y: number }): void => {
+    let state = transformStates.get(element);
+    if (!state) {
+      state = { inline: element.style.transform, computed: getComputedStyle(element).transform, hadStyleAttribute: element.hasAttribute("style") };
+      transformStates.set(element, state);
+    }
+    if (value.x === 0 && value.y === 0) {
+      element.style.transform = state.inline;
+      if (!state.hadStyleAttribute && element.getAttribute("style") === "") element.removeAttribute("style");
+      runtimeDeltas.delete(element);
+    } else {
+      const base = state.computed === "none" ? "" : ` ${state.computed}`;
+      element.style.transform = `translate(${value.x}px, ${value.y}px)${base}`;
+      runtimeDeltas.set(element, value);
+    }
+    updateBoxes();
+  };
+
+  const restorePreviewTransforms = (): void => {
+    for (const [element, state] of transformStates) {
+      element.style.transform = state.inline;
+      if (!state.hadStyleAttribute && element.getAttribute("style") === "") element.removeAttribute("style");
+    }
+    transformStates.clear();
+    runtimeDeltas.clear();
   };
 
   const newInstruction = (target: HTMLElement, operation: VisualOperation): ReviewInstruction => {
@@ -251,15 +301,9 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   };
 
   const transformElement = (element: HTMLElement, from: { x: number; y: number }, to: { x: number; y: number }, beforeRect: RectSnapshot): void => {
-    const original = element.style.transform;
     const operation: VisualOperation = { type: "move", delta: { x: to.x - from.x, y: to.y - from.y }, before: beforeRect, after: { ...beforeRect, x: beforeRect.x + to.x - from.x, y: beforeRect.y + to.y - from.y } };
     const instruction = newInstruction(element, operation);
-    const set = (value: { x: number; y: number }): void => {
-      runtimeDeltas.set(element, value);
-      element.style.transform = `${original && !original.includes("translate(") ? `${original} ` : ""}translate(${value.x}px, ${value.y}px)`;
-      updateBoxes();
-    };
-    executeVisual({ label: "move", instruction, apply: () => set(to), revert: () => set(from) });
+    executeVisual({ label: "move", instruction, apply: () => applyPreviewTransform(element, to), revert: () => applyPreviewTransform(element, from) });
   };
 
   const nudge = (dx: number, dy: number): void => {
@@ -311,15 +355,14 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     const dx = event.clientX - drag.startX; const dy = event.clientY - drag.startY;
     if (Math.abs(dx) + Math.abs(dy) < 3) return;
     drag.moved = true;
-    drag.target.style.transform = `translate(${drag.from.x + dx}px, ${drag.from.y + dy}px)`;
-    updateBoxes();
+    applyPreviewTransform(drag.target, { x: drag.from.x + dx, y: drag.from.y + dy });
   };
   const onPointerUp = (event: PointerEvent): void => {
     if (!drag) return;
     const current = drag; drag = null;
     if (current.moved) {
       const to = { x: current.from.x + event.clientX - current.startX, y: current.from.y + event.clientY - current.startY };
-      current.target.style.transform = `translate(${current.from.x}px, ${current.from.y}px)`;
+      applyPreviewTransform(current.target, current.from);
       transformElement(current.target, current.from, to, current.before);
     }
   };
@@ -376,6 +419,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     compareFrame.hidden = mode === "edited";
     compareFrame.className = `compare ${mode}`;
     (shadow.querySelector("[data-compare]") as HTMLSelectElement).value = mode;
+    attachScrollSync();
   };
   const setViewport = (value: ViewportPreset): void => {
     preset = value;
@@ -421,10 +465,11 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
 
   const replaceText = (): void => {
     const target = selected.at(-1); if (!target) return;
-    const before = target.textContent ?? ""; const after = textInput.value;
+    const textNode = editableDirectText(target); if (!textNode) return;
+    const before = textNode.data; const after = textInput.value;
     if (before === after) return;
     const instruction = newInstruction(target, { type: "replace-text", before, after });
-    executeVisual({ label: "replace-text", instruction, apply: () => { target.textContent = after; updateBoxes(); }, revert: () => { target.textContent = before; updateBoxes(); } });
+    executeVisual({ label: "replace-text", instruction, apply: () => { textNode.data = after; updateBoxes(); }, revert: () => { textNode.data = before; updateBoxes(); } });
   };
 
   const alignLeft = (): void => {
@@ -486,35 +531,49 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     saveLocalPreference({ locale: value });
     render();
   });
-  compareFrame.addEventListener("load", () => {
-    if (config.review.scrollSync !== "ratio") return;
-    const sync = (): void => {
+  let scrollSyncHandler: (() => void) | null = null;
+  function detachScrollSync(): void {
+    if (scrollSyncHandler) window.removeEventListener("scroll", scrollSyncHandler);
+    scrollSyncHandler = null;
+  }
+  function attachScrollSync(): void {
+    detachScrollSync();
+    if (config.review.scrollSync !== "ratio" || compareMode === "edited") return;
+    scrollSyncHandler = (): void => {
       const max = Math.max(1, document.documentElement.scrollHeight - innerHeight);
       const frameWindow = compareFrame.contentWindow; const frameDocument = compareFrame.contentDocument;
       if (!frameWindow || !frameDocument) return;
       const frameMax = Math.max(1, frameDocument.documentElement.scrollHeight - compareFrame.clientHeight);
       frameWindow.scrollTo(0, scrollY / max * frameMax);
     };
-    window.addEventListener("scroll", sync, { passive: true });
-  });
+    window.addEventListener("scroll", scrollSyncHandler, { passive: true });
+  }
+  const onCompareLoad = (): void => { attachScrollSync(); };
+  compareFrame.addEventListener("load", onCompareLoad);
   window.addEventListener("scroll", updateBoxes, { passive: true });
   window.addEventListener("resize", updateBoxes, { passive: true });
   document.addEventListener("keydown", onKeyDown, true);
 
+  let destroyed = false;
   let unregisterTools = (): void => undefined;
-  void registerVisualReviewTools(() => session, persist, clear).then((unregister) => { unregisterTools = unregister; });
+  void registerVisualReviewTools(() => session, persist, clear).then((unregister) => {
+    if (destroyed) unregister();
+    else unregisterTools = unregister;
+  });
 
   function clear(): void {
     while (history.canUndo) history.undo();
-    history.clear(); session.annotations = []; storage.clear(); selected = []; persist();
+    history.clear(); restorePreviewTransforms(); session.annotations = []; selected = []; storage.clear(); render();
   }
   function destroy(): void {
-    stop(); clear(); unregisterTools();
+    destroyed = true; stop(); clear(); unregisterTools(); detachScrollSync();
+    compareFrame.removeEventListener("load", onCompareLoad);
     document.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("scroll", updateBoxes);
     window.removeEventListener("resize", updateBoxes);
     host.remove();
   }
+  setCompare(compareMode);
   if (options.startActive) start(); else render();
 
   return {
