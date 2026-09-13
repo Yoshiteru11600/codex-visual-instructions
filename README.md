@@ -46,7 +46,7 @@ For a vanilla page, load the ESM build from your dev server and call `install()`
 6. Ask Codex to implement the current visual review session.
 7. Codex reads the Site Tools payload, investigates source, implements compatible instructions together, reloads, verifies, and marks completed items resolved.
 
-Visual instructions start as `draft`. **Confirm instructions for Codex** marks a non-empty session as `ready` and records its confirmation time; it does not send an HTTP request or contact an external API. A specification-changing edit returns the session to `draft`, while panel, locale, and comparison-view changes do not. The payload contains a simple operation summary, multi-signal element fingerprints, before/after operation data, visual intent, risk, verification requirements, and a shared implementation instruction.
+Visual instructions start as `draft`. **Confirm instructions for Codex** marks a session with unresolved instructions as `ready` and records `confirmedAt`; it does not send an HTTP request or contact an external API. A specification-changing edit returns the session to `draft` and clears `confirmedAt`, while panel, locale, and comparison-view changes do not. Sessions with no pending instructions cannot be confirmed. The payload summary reports `total`, `pending`, `resolved`, and operation counts across all instructions.
 
 The browser preview is a visual specification, not a literal source patch. Codex must inspect the real project structure and implement the intent using its existing layout, components, tokens, and responsive conventions. The tool deliberately does not attempt DOM-to-React/Vue/Svelte source mapping.
 
@@ -60,7 +60,7 @@ When `document.modelContext.registerTool` is available in a top-level page, the 
 - `visual_review_mark_resolved`
 - `visual_review_clear_session`
 
-`visual_review_get_session` includes the session's `status`, optional `submittedAt`, operation `summary`, and annotations so Codex can respect the explicit handoff boundary.
+`visual_review_get_session` includes the session's `status`, optional `confirmedAt`, operation `summary`, and annotations so Codex can respect the explicit handoff boundary. Codex implements only instructions where `resolved` is `false`.
 
 This follows the current JavaScript registration approach in the [official OpenAI Site Tools documentation](https://developers.openai.com/codex/webmcp). The built-in browser currently discovers JavaScript-registered tools only from the top-level page, not iframes. Availability depends on the Codex/ChatGPT app, model, workspace, and rollout.
 

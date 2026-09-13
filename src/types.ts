@@ -22,6 +22,9 @@ export type ReviewSessionStatus = "draft" | "ready";
 
 export interface ReviewSessionSummary {
   total: number;
+  pending: number;
+  resolved: number;
+  /** Counts all instructions, including resolved instructions. */
   byOperation: Record<string, number>;
 }
 
@@ -97,7 +100,7 @@ export interface ReviewSession {
   viewport: ViewportInfo;
   createdAt: string;
   status: ReviewSessionStatus;
-  submittedAt?: string;
+  confirmedAt?: string;
   summary: ReviewSessionSummary;
   annotations: ReviewInstruction[];
   implementationInstruction: string;
@@ -138,7 +141,7 @@ export interface VisualReviewHandle {
   destroy(): void;
   undo(): void;
   redo(): void;
-  submit(): boolean;
+  confirm(): boolean;
   serialize(): string;
   clear(): void;
 }

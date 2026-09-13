@@ -7,7 +7,7 @@ description: Implement UI changes from a live codex-visual-instructions WebMCP r
 
 Always begin with `visual_review_get_session` and inspect the session status. Keep the session payload local to the user's task.
 
-- When `status` is `ready`, process the session as the user's confirmed implementation request.
+- When `status` is `ready`, process the session as the user's confirmed implementation request. Implement only instructions where `resolved` is `false`; never reapply resolved instructions.
 - When `status` is `draft`, do not assume that its instructions are finalized. Process it only when the user has explicitly asked to implement that draft session; otherwise ask them to confirm the handoff.
 
 If the full-session tool is unavailable, use `visual_review_list_instructions` and fetch individual items as needed, but do not infer a confirmed handoff state from the presence of instructions alone.

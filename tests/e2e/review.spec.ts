@@ -27,7 +27,7 @@ test("installs, selects, nudges, edits, undoes, and blocks navigation", async ({
   await expect(page).toHaveURL(/examples\/vanilla/);
 });
 
-test("hands off a non-empty session and returns to draft after editing", async ({ page }) => {
+test("confirms a pending session and returns to draft after editing", async ({ page }) => {
   await page.evaluate(() => (window as any).visualReview.start());
   const host = page.locator("[data-codex-visual-instructions]");
   expect(await host.evaluate((element: any) => element.shadowRoot.querySelector('[data-action="handoff"]').disabled)).toBe(true);
@@ -38,8 +38,17 @@ test("hands off a non-empty session and returns to draft after editing", async (
   await host.evaluate((element: any) => element.shadowRoot.querySelector('[data-action="handoff"]').click());
 
   await expect.poll(() => page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
-  expect(await page.evaluate(() => (window as any).visualReview.session.submittedAt)).toBeTruthy();
-  expect(await page.evaluate(() => (window as any).visualReview.session.summary)).toEqual({ total: 1, byOperation: { move: 1 } });
+  const confirmedAt = await page.evaluate(() => (window as any).visualReview.session.confirmedAt);
+  expect(confirmedAt).toBeTruthy();
+  expect(await page.evaluate(() => (window as any).visualReview.session.summary)).toEqual({ total: 1, pending: 1, resolved: 0, byOperation: { move: 1 } });
+
+  await host.evaluate((element: any) => {
+    const compare = element.shadowRoot.querySelector("[data-compare]");
+    compare.value = "overlay";
+    compare.dispatchEvent(new Event("change"));
+  });
+  expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+  expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBe(confirmedAt);
 
   await host.evaluate((element: any) => {
     const comment = element.shadowRoot.querySelector("[data-comment]");
@@ -47,7 +56,7 @@ test("hands off a non-empty session and returns to draft after editing", async (
     comment.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await expect.poll(() => page.evaluate(() => (window as any).visualReview.session.status)).toBe("draft");
-  expect(await page.evaluate(() => (window as any).visualReview.session.submittedAt)).toBeUndefined();
+  expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBeUndefined();
 });
 
 test("supports multi-select, hide, compare and locale controls", async ({ page }) => {

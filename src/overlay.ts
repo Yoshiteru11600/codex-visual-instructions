@@ -3,7 +3,7 @@ import { mergeConfig } from "./core/config";
 import { fingerprintElement, safeTextSummary } from "./core/fingerprint";
 import { HistoryStack, type HistoryEntry } from "./core/history";
 import { sanitizeSnapshot } from "./core/sanitize";
-import { markSessionDraft, refreshSessionSummary, submitSession } from "./core/session";
+import { confirmSession, hasPendingInstructions, markSessionDraft, refreshSessionSummary } from "./core/session";
 import { SessionStorage } from "./core/storage";
 import { getMessages, resolveLocale, type Messages } from "./locales";
 import {
@@ -130,7 +130,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     viewport: viewportInfo(preset),
     createdAt: new Date().toISOString(),
     status: "draft",
-    summary: { total: 0, byOperation: {} },
+    summary: { total: 0, pending: 0, resolved: 0, byOperation: {} },
     annotations: [],
     implementationInstruction: IMPLEMENTATION_INSTRUCTION,
   };
@@ -193,14 +193,14 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
 
   const persist = (): void => { session.viewport = viewportInfo(preset); refreshSessionSummary(session); storage.save(session); render(); };
   const persistSpecificationChange = (): void => { markSessionDraft(session); persist(); };
-  const submitHandoff = (): boolean => {
-    if (!submitSession(session)) return false;
+  const confirmHandoff = (): boolean => {
+    if (!confirmSession(session)) { render(); return false; }
     persist();
     return true;
   };
   const toggleHandoff = (): void => {
     if (session.status === "ready") { markSessionDraft(session); persist(); }
-    else submitHandoff();
+    else confirmHandoff();
   };
   const saveLocalPreference = (patch: Record<string, unknown>): void => {
     try {
@@ -249,12 +249,12 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     launcher.hidden = active;
     $("[data-count]").textContent = `${session.annotations.length} ${messages.sessionCount}`;
     const operationSummary = Object.entries(session.summary.byOperation).map(([type, count]) => `${type}: ${count}`).join(" · ");
-    $("[data-handoff-summary]").textContent = operationSummary || `0 ${messages.sessionCount}`;
+    $("[data-handoff-summary]").textContent = `pending: ${session.summary.pending} · resolved: ${session.summary.resolved}${operationSummary ? ` · ${operationSummary}` : ""}`;
     const handoffStatus = $("[data-handoff-status]") as HTMLElement;
     handoffStatus.hidden = session.status !== "ready";
     handoffStatus.textContent = session.status === "ready" ? messages.handoffReady : "";
     handoffButton.textContent = session.status === "ready" ? messages.editInstructions : messages.requestChanges;
-    handoffButton.disabled = session.annotations.length === 0;
+    handoffButton.disabled = !hasPendingInstructions(session);
     const primary = selected.at(-1);
     meta.replaceChildren();
     if (primary) {
@@ -356,7 +356,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   commands.register("selection.firstChild", () => selectRelative("firstChild"));
   commands.register("selection.previousSibling", () => selectRelative("previousSibling"));
   commands.register("selection.nextSibling", () => selectRelative("nextSibling"));
-  commands.register("session.submit", () => { submitHandoff(); });
+  commands.register("session.submit", () => { confirmHandoff(); });
   commands.register("compare.next", () => {
     const modes: CompareMode[] = ["edited", "original", "side-by-side", "overlay"];
     setCompare(modes[(modes.indexOf(compareMode) + 1) % modes.length]!);
@@ -636,7 +636,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   return {
     get session() { return session; }, get active() { return active; }, start, stop, destroy,
     undo: () => { history.undo(); }, redo: () => { history.redo(); },
-    submit: submitHandoff,
+    confirm: confirmHandoff,
     serialize: () => JSON.stringify(session, null, 2), clear,
   };
 }

@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { install } from "../../src";
 import type { ReviewInstruction } from "../../src";
 
-const instruction = (): ReviewInstruction => ({
-  id: "instruction-1",
+const instruction = (id = "instruction-1", resolved = false): ReviewInstruction => ({
+  id,
   target: { tagName: "DIV" },
   operation: { type: "hide", intent: "not-visible" },
   intent: "visibility",
@@ -14,7 +14,7 @@ const instruction = (): ReviewInstruction => ({
   risk: "medium",
   verificationRequired: false,
   implementationRequirements: [],
-  resolved: false,
+  resolved,
   createdAt: "2026-09-14T00:00:00.000Z",
 });
 
@@ -23,18 +23,18 @@ describe("session serialization", () => {
   it("creates a versioned local session with implementation guidance", () => {
     const handle = install(); const value = JSON.parse(handle.serialize());
     expect(value.version).toBe(1); expect(value.sessionId).toMatch(/^review-/);
-    expect(value.status).toBe("draft"); expect(value.submittedAt).toBeUndefined();
-    expect(value.summary).toEqual({ total: 0, byOperation: {} });
+    expect(value.status).toBe("draft"); expect(value.confirmedAt).toBeUndefined();
+    expect(value.summary).toEqual({ total: 0, pending: 0, resolved: 0, byOperation: {} });
     expect(value.implementationInstruction).toContain("visual specifications");
     handle.destroy();
   });
-  it("submits a non-empty session, persists its summary, and returns to draft after a specification edit", () => {
+  it("confirms a session with pending instructions, persists its summary, and returns to draft after a specification edit", () => {
     const handle = install({ storageKey: "handoff-test" });
     handle.session.annotations.push(instruction());
-    expect(handle.submit()).toBe(true);
+    expect(handle.confirm()).toBe(true);
     expect(handle.session.status).toBe("ready");
-    expect(handle.session.submittedAt).toBeTruthy();
-    expect(handle.session.summary).toEqual({ total: 1, byOperation: { hide: 1 } });
+    expect(handle.session.confirmedAt).toBeTruthy();
+    expect(handle.session.summary).toEqual({ total: 1, pending: 1, resolved: 0, byOperation: { hide: 1 } });
     expect(JSON.parse(localStorage.getItem("handoff-test") ?? "null").status).toBe("ready");
 
     handle.start();
@@ -43,14 +43,34 @@ describe("session serialization", () => {
     comment.value = "Updated intent";
     comment.dispatchEvent(new Event("input", { bubbles: true }));
     expect(handle.session.status).toBe("draft");
-    expect(handle.session.submittedAt).toBeUndefined();
+    expect(handle.session.confirmedAt).toBeUndefined();
     handle.destroy();
   });
-  it("does not submit a session without instructions", () => {
+  it("does not confirm a session without instructions", () => {
     const handle = install({ storageKey: "empty-handoff-test" });
-    expect(handle.submit()).toBe(false);
+    expect(handle.confirm()).toBe(false);
     expect(handle.session.status).toBe("draft");
     expect(localStorage.getItem("empty-handoff-test")).toBeNull();
+    handle.destroy();
+  });
+  it("confirms mixed pending and resolved instructions and preserves the summary invariant", () => {
+    const handle = install();
+    handle.session.annotations.push(instruction("pending-1"), instruction("resolved-1", true), instruction("pending-2"));
+    expect(handle.confirm()).toBe(true);
+    expect(handle.session.summary).toEqual({ total: 3, pending: 2, resolved: 1, byOperation: { hide: 3 } });
+    expect(handle.session.summary.total).toBe(handle.session.summary.pending + handle.session.summary.resolved);
+    handle.destroy();
+  });
+  it("does not confirm an all-resolved session and disables the handoff button", () => {
+    const handle = install();
+    handle.session.annotations.push(instruction("resolved-1", true), instruction("resolved-2", true), instruction("resolved-3", true));
+    expect(handle.confirm()).toBe(false);
+    expect(handle.session.status).toBe("draft");
+    expect(handle.session.confirmedAt).toBeUndefined();
+    expect(handle.session.summary).toMatchObject({ total: 3, pending: 0, resolved: 3 });
+    handle.start();
+    const button = document.querySelector<HTMLElement>("[data-codex-visual-instructions]")!.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="handoff"]')!;
+    expect(button.disabled).toBe(true);
     handle.destroy();
   });
   it("keeps clear storage empty instead of immediately saving an empty session", () => {
