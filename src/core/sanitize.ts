@@ -14,21 +14,21 @@ export function sanitizeElementMetadata(element: Element): Record<string, string
 
 export function sanitizeSnapshot(documentElement: Element): string {
   const clone = documentElement.cloneNode(true) as Element;
-  clone.querySelectorAll("script, iframe, object, embed, base, link, [data-codex-visual-instructions]").forEach((node) => node.remove());
+  clone.querySelectorAll("script, iframe, object, embed, [data-codex-visual-instructions]").forEach((node) => node.remove());
+  clone.querySelectorAll("link").forEach((node) => {
+    if (!node.relList.contains("stylesheet")) node.remove();
+  });
   clone.querySelectorAll("meta[http-equiv]").forEach((node) => {
     if (node.getAttribute("http-equiv")?.toLowerCase() === "refresh") node.remove();
   });
   clone.querySelectorAll("form").forEach((form) => form.replaceWith(...form.childNodes));
   clone.querySelectorAll("*").forEach((node) => {
     for (const attribute of [...node.attributes]) {
-      if (attribute.name.toLowerCase().startsWith("on") || ["src", "srcset", "poster", "ping", "action", "formaction", "href"].includes(attribute.name.toLowerCase())) {
+      if (attribute.name.toLowerCase().startsWith("on") || ["ping", "action", "formaction"].includes(attribute.name.toLowerCase())) {
         node.removeAttribute(attribute.name);
       }
     }
-    const inlineStyle = node.getAttribute("style");
-    if (inlineStyle) node.setAttribute("style", stripExternalCss(inlineStyle));
   });
-  clone.querySelectorAll("style").forEach((node) => { node.textContent = stripExternalCss(node.textContent ?? ""); });
   clone.querySelectorAll("input, textarea").forEach((node) => {
     node.removeAttribute("value");
     if (node instanceof HTMLTextAreaElement) node.textContent = "";
@@ -38,10 +38,4 @@ export function sanitizeSnapshot(documentElement: Element): string {
     if (SECRET_NAME.test(marker)) node.remove();
   });
   return `<!doctype html>${clone.outerHTML}`;
-}
-
-function stripExternalCss(css: string): string {
-  return css
-    .replace(/@import\s+(?:url\([^)]*\)|["'][^"']*["'])\s*;?/gi, "")
-    .replace(/url\(\s*(?:["'][^"']*["']|[^)]*)\s*\)/gi, "none");
 }

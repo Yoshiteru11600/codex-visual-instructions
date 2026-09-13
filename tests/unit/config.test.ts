@@ -3,7 +3,7 @@ import { mergeConfig } from "../../src/core/config";
 
 describe("mergeConfig", () => {
   it("uses the default comparison mode", () => {
-    expect(mergeConfig().review.defaultCompareMode).toBe("side-by-side");
+    expect(mergeConfig().review.defaultCompareMode).toBe("edited");
   });
   it("uses project values over local preferences and keeps privacy disabled", () => {
     const result = mergeConfig({ locale: "fr", shortcuts: { "review.toggle": "Alt+R" } }, { locale: "ja", review: { defaultViewport: "mobile" }, privacy: { telemetry: false } });

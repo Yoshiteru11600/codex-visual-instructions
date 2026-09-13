@@ -74,7 +74,7 @@ Command IDs are independent from shortcut bindings. Pass project configuration t
 
 ## Comparison and viewports
 
-The control offers Edited, Original, Side-by-side, and translucent Overlay modes. The configured `review.defaultCompareMode` is applied when the overlay installs. Original is a sanitized, scriptless `srcdoc` approximation captured before the overlay is mounted. Active embeds, forms, navigation/resource attributes, event handlers, and external CSS URLs are removed; this improves inertness at the cost of exact image/font/stylesheet reproduction. Scroll synchronization uses a document-height ratio.
+The control offers Edited, Original, Side-by-side, and translucent Overlay modes. The configured `review.defaultCompareMode` is applied when the overlay installs. Original is a non-interactive, scriptless `srcdoc` approximation captured before the overlay is mounted. Stylesheets, images, presentation resources, and ordinary links are preserved for visual fidelity, while active embeds, form submission, automatic navigation, and event handlers are removed. Scroll synchronization uses a document-height ratio.
 
 Desktop, Tablet, Mobile, and Custom presets provide visible layout-width guides. They do not impersonate a device or change browser media-query evaluation. Use the built-in browser's actual viewport for final responsive verification.
 
@@ -96,7 +96,7 @@ This is a development tool loaded into the target page. A page can still inspect
 
 ## Known limitations and v1 non-goals
 
-- Original snapshots are visual approximations; external images/styles/fonts, canvas, WebGL, video, iframes, forms, and active application state may differ.
+- Original snapshots are visual approximations; canvas, WebGL, video, iframes, forms, and active application state may differ.
 - Text preview editing changes only one unambiguous direct text node. Complex nested content without one is intentionally left unchanged.
 - Viewport presets are guides, not full touch/device emulation.
 - SPA re-renders can invalidate runtime node references; persisted fingerprints resolve conservatively.

@@ -55,7 +55,7 @@ const styles = `
   .hover { border-style:dashed; border-color:#45d7b0; }
   .selection::after { content:attr(data-label); position:absolute; left:-2px; top:-20px; padding:2px 5px; color:white; background:#6d5dfc; border-radius:3px 3px 0 0; font:10px/1.4 system-ui,sans-serif; white-space:nowrap; }
   .resize { position:fixed; z-index:2147483647; width:14px; height:14px; border-radius:4px; background:#fff; border:3px solid #6d5dfc; cursor:nwse-resize; touch-action:none; pointer-events:auto; }
-  .compare { position:fixed; z-index:2147483643; background:#fff; border:0; box-shadow:0 0 0 1px #0004; }
+  .compare { position:fixed; z-index:2147483643; background:#fff; border:0; box-shadow:0 0 0 1px #0004; pointer-events:none; }
   .compare.original { inset:0; width:100vw; height:100vh; }
   .compare.side-by-side { top:0; right:0; width:50vw; height:100vh; border-left:3px solid #6d5dfc; }
   .compare.overlay { inset:0; width:100vw; height:100vh; opacity:.5; pointer-events:none; }

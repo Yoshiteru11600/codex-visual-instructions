@@ -11,7 +11,7 @@ describe("sanitization", () => {
     const input = document.createElement("input"); input.setAttribute("value", "private"); input.setAttribute("aria-label", "Email");
     expect(sanitizeElementMetadata(input)).toEqual({ "aria-label": "Email" });
   });
-  it("removes active content, navigation, resource requests, and event handlers", () => {
+  it("removes active behavior while preserving visual resources and links", () => {
     document.documentElement.innerHTML = `<head>
       <base href="https://evil.test/"><link rel="stylesheet" href="https://evil.test/x.css">
       <meta http-equiv="refresh" content="0;url=https://evil.test/"><style>.x{background:url(https://evil.test/x.png)}@import "https://evil.test/x.css";</style>
@@ -20,9 +20,12 @@ describe("sanitization", () => {
     </body>`;
     const snapshot = sanitizeSnapshot(document.documentElement);
     const parsed = new DOMParser().parseFromString(snapshot, "text/html");
-    expect(parsed.querySelector("base, link, meta[http-equiv=refresh], iframe, object, embed, form")).toBeNull();
-    expect(parsed.querySelector("[src], [srcset], [poster], [ping], [href], [action], [onerror]")).toBeNull();
-    expect(snapshot).not.toContain("evil.test");
+    expect(parsed.querySelector("meta[http-equiv=refresh], iframe, object, embed, form")).toBeNull();
+    expect(parsed.querySelector("[ping], [action], [onerror]")).toBeNull();
+    expect(parsed.querySelector('link[rel="stylesheet"]')?.getAttribute("href")).toBe("https://evil.test/x.css");
+    expect(parsed.querySelector("img")?.getAttribute("src")).toBe("x");
+    expect(parsed.querySelector("a")?.getAttribute("href")).toBe("https://evil.test");
+    expect(parsed.querySelector("style")?.textContent).toContain("url(https://evil.test/x.png)");
     expect(parsed.body.textContent).toContain("go");
   });
 });

@@ -14,7 +14,7 @@ export const DEFAULT_CONFIG: VisualReviewConfig = {
   review: {
     navigationPolicy: "block-all",
     defaultViewport: "desktop",
-    defaultCompareMode: "side-by-side",
+    defaultCompareMode: "edited",
     scrollSync: "ratio",
   },
   privacy: { telemetry: false },
