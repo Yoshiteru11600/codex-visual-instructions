@@ -24,7 +24,14 @@ export function sanitizeSnapshot(documentElement: Element): string {
   clone.querySelectorAll("form").forEach((form) => form.replaceWith(...form.childNodes));
   clone.querySelectorAll("*").forEach((node) => {
     for (const attribute of [...node.attributes]) {
-      if (attribute.name.toLowerCase().startsWith("on") || ["ping", "action", "formaction"].includes(attribute.name.toLowerCase())) {
+      const name = attribute.name.toLowerCase();
+      const isHref = name === "href" || name === "xlink:href";
+      const isPresentationHref = isHref && (
+        (name === "href" && node instanceof HTMLBaseElement)
+        || (name === "href" && node instanceof HTMLLinkElement && node.relList.contains("stylesheet"))
+        || (node.namespaceURI === "http://www.w3.org/2000/svg" && ["use", "image", "feimage"].includes(node.localName.toLowerCase()))
+      );
+      if (name.startsWith("on") || ["ping", "action", "formaction"].includes(name) || (isHref && !isPresentationHref)) {
         node.removeAttribute(attribute.name);
       }
     }

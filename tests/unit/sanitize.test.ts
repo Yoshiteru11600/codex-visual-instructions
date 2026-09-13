@@ -11,20 +11,23 @@ describe("sanitization", () => {
     const input = document.createElement("input"); input.setAttribute("value", "private"); input.setAttribute("aria-label", "Email");
     expect(sanitizeElementMetadata(input)).toEqual({ "aria-label": "Email" });
   });
-  it("removes active behavior while preserving visual resources and links", () => {
+  it("removes active behavior and navigation while preserving visual resources", () => {
     document.documentElement.innerHTML = `<head>
       <base href="https://evil.test/"><link rel="stylesheet" href="https://evil.test/x.css">
       <meta http-equiv="refresh" content="0;url=https://evil.test/"><style>.x{background:url(https://evil.test/x.png)}@import "https://evil.test/x.css";</style>
     </head><body><iframe src="https://evil.test"></iframe><object data="x"></object><embed src="x">
-      <form action="https://evil.test"><img src="x" srcset="y 2x" onerror="steal()"><a href="https://evil.test" ping="https://evil.test/p">go</a><video poster="x"></video></form>
+      <form action="https://evil.test"><img src="x" srcset="y 2x" onerror="steal()"><a href="https://evil.test" ping="https://evil.test/p">go</a><video poster="x"></video>
+      <svg><use href="#icon"></use><a href="https://evil.test/svg">svg link</a></svg></form>
     </body>`;
     const snapshot = sanitizeSnapshot(document.documentElement);
     const parsed = new DOMParser().parseFromString(snapshot, "text/html");
     expect(parsed.querySelector("meta[http-equiv=refresh], iframe, object, embed, form")).toBeNull();
-    expect(parsed.querySelector("[ping], [action], [onerror]")).toBeNull();
+    expect(parsed.querySelector("[ping], [action], [onerror], a[href]")).toBeNull();
+    expect(parsed.querySelector("base")?.getAttribute("href")).toBe("https://evil.test/");
     expect(parsed.querySelector('link[rel="stylesheet"]')?.getAttribute("href")).toBe("https://evil.test/x.css");
     expect(parsed.querySelector("img")?.getAttribute("src")).toBe("x");
-    expect(parsed.querySelector("a")?.getAttribute("href")).toBe("https://evil.test");
+    expect(parsed.querySelector("use")?.getAttribute("href")).toBe("#icon");
+    expect(parsed.querySelector("svg a")?.hasAttribute("href")).toBe(false);
     expect(parsed.querySelector("style")?.textContent).toContain("url(https://evil.test/x.png)");
     expect(parsed.body.textContent).toContain("go");
   });

@@ -7,3 +7,9 @@ test-results/
 examples/react-vite/dist/
 *.log
 .DS_Store
+
+# Local AI/Codex work instructions
+.codex-work/
+CODEX_*_REVIEW.md
+CODEX_*_FIX.md
+CODEX_*_INSTRUCTION*.md
