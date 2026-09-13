@@ -1,0 +1,25 @@
+{
+  "name": "codex-visual-instructions",
+  "version": "0.1.0",
+  "description": "Implement local visual review sessions as source-aware UI changes without copying temporary DOM edits literally.",
+  "author": {
+    "name": "Codex Visual Instructions contributors"
+  },
+  "license": "MIT",
+  "keywords": ["codex", "visual-review", "webmcp", "frontend"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Visual Instructions",
+    "shortDescription": "Turn browser review intent into source changes",
+    "longDescription": "Reads local visual review sessions exposed by a page, locates the corresponding workspace source, implements compatible instructions together, and verifies the result in the browser.",
+    "developerName": "Codex Visual Instructions contributors",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "defaultPrompt": [
+      "Implement this page's visual review session.",
+      "List the open visual review instructions.",
+      "Verify the resolved visual changes in the browser."
+    ],
+    "brandColor": "#6D5DFC"
+  }
+}

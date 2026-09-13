@@ -1,0 +1,3 @@
+:root { font: 16px/1.5 system-ui; background:#11131a; color:#f7f3e9; }
+body { margin:0; } main { max-width:760px; margin:18vh auto; padding:32px; }
+h1 { font-size:clamp(42px,8vw,78px); line-height:1; } button { padding:13px 18px; border:0; border-radius:8px; background:#73e2bf; color:#10251f; font-weight:700; }

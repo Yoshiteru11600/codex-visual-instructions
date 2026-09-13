@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "locale": "auto",
+  "shortcuts": {},
+  "review": {
+    "navigationPolicy": "block-all",
+    "defaultViewport": "desktop",
+    "defaultCompareMode": "side-by-side",
+    "scrollSync": "ratio"
+  },
+  "privacy": {
+    "telemetry": false
+  }
+}
