@@ -3,6 +3,7 @@ import { mergeConfig } from "./core/config";
 import { fingerprintElement, safeTextSummary } from "./core/fingerprint";
 import { HistoryStack, type HistoryEntry } from "./core/history";
 import { sanitizeSnapshot } from "./core/sanitize";
+import { markSessionDraft, refreshSessionSummary, submitSession } from "./core/session";
 import { SessionStorage } from "./core/storage";
 import { getMessages, resolveLocale, type Messages } from "./locales";
 import {
@@ -51,6 +52,10 @@ const styles = `
   .meta code { color:#9fe7d7; } .hint { color:#989bab; font-size:11px; }
   .danger { border-color:#ff697d70; color:#ffb5bf; }
   .active { background:#6d5dfc; border-color:#8d82ff; }
+  .handoff { padding:10px; border:1px solid #ffffff1c; border-radius:9px; background:#20222d; display:grid; gap:7px; }
+  .handoff .primary { width:100%; padding:9px 12px; background:#6d5dfc; border-color:#8d82ff; font-weight:650; }
+  .handoff .primary:hover { background:#7a6cfe; } .handoff .primary:disabled { background:#282a36; }
+  .handoff-status { margin:0; color:#b9f3d9; font-size:12px; } .handoff-summary { color:#b6b8c6; font-size:11px; }
   .hover, .selection { position:fixed; z-index:2147483644; pointer-events:none; border:2px solid #6d5dfc; border-radius:3px; }
   .hover { border-style:dashed; border-color:#45d7b0; }
   .selection::after { content:attr(data-label); position:absolute; left:-2px; top:-20px; padding:2px 5px; color:white; background:#6d5dfc; border-radius:3px 3px 0 0; font:10px/1.4 system-ui,sans-serif; white-space:nowrap; }
@@ -124,6 +129,8 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     route: `${location.pathname}${location.search}${location.hash}`,
     viewport: viewportInfo(preset),
     createdAt: new Date().toISOString(),
+    status: "draft",
+    summary: { total: 0, byOperation: {} },
     annotations: [],
     implementationInstruction: IMPLEMENTATION_INSTRUCTION,
   };
@@ -151,6 +158,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
         <label><span data-i18n="comment"></span><textarea data-comment maxlength="1000"></textarea></label>
         <div class="row"><label><span data-i18n="precision"></span><select data-precision><option value="exact">Exact</option><option value="approximate" selected>Approximate</option><option value="relationship">Relationship</option><option value="intent-only">Intent only</option></select></label><label><span data-i18n="scope"></span><select data-scope><option value="current-viewport">Current viewport</option><option value="current-breakpoint">Current breakpoint</option><option value="all-narrower">All narrower</option><option value="all-wider">All wider</option><option value="all-viewports">All viewports</option></select></label></div>
         <div class="row"><label><span data-i18n="compare"></span><select data-compare><option value="edited">Edited</option><option value="original">Original</option><option value="side-by-side">Side by side</option><option value="overlay">Overlay</option></select></label><label><span data-i18n="viewport"></span><select data-viewport><option value="desktop">Desktop</option><option value="tablet">Tablet</option><option value="mobile">Mobile</option><option value="custom">Custom</option></select></label></div>
+        <div class="handoff"><div class="handoff-summary" data-handoff-summary></div><p class="handoff-status" data-handoff-status hidden></p><button class="primary" type="button" data-action="handoff"></button></div>
         <div class="row"><label>Language<select data-locale><option value="auto">Auto</option><option value="en">English</option><option value="ja">日本語</option><option value="fr">Français</option><option value="ru">Русский</option></select></label></div>
         <label>Toggle shortcut<div class="row"><input data-shortcut-input><button data-action="save-shortcut">Save</button></div><small class="hint" data-shortcut-warning></small></label>
         <p class="hint">Alt+Shift+Arrow: DOM traversal · Arrow: 1px · Shift+Arrow: 10px · Esc: clear/cancel</p>
@@ -178,11 +186,22 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const shortcutInput = $("[data-shortcut-input]") as HTMLInputElement;
   const textButton = shadow.querySelector<HTMLButtonElement>("[data-action=text]")!;
   const textWarning = $("[data-text-warning]") as HTMLElement;
+  const handoffButton = shadow.querySelector<HTMLButtonElement>("[data-action=handoff]")!;
 
   compareFrame.srcdoc = originalSnapshot;
   shortcutInput.value = config.shortcuts["review.toggle"] ?? "Alt+Shift+R";
 
-  const persist = (): void => { session.viewport = viewportInfo(preset); storage.save(session); render(); };
+  const persist = (): void => { session.viewport = viewportInfo(preset); refreshSessionSummary(session); storage.save(session); render(); };
+  const persistSpecificationChange = (): void => { markSessionDraft(session); persist(); };
+  const submitHandoff = (): boolean => {
+    if (!submitSession(session)) return false;
+    persist();
+    return true;
+  };
+  const toggleHandoff = (): void => {
+    if (session.status === "ready") { markSessionDraft(session); persist(); }
+    else submitHandoff();
+  };
   const saveLocalPreference = (patch: Record<string, unknown>): void => {
     try {
       const current = JSON.parse(localStorage.getItem("codex-visual-instructions:preferences") ?? "{}");
@@ -229,6 +248,13 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     panel.hidden = !active;
     launcher.hidden = active;
     $("[data-count]").textContent = `${session.annotations.length} ${messages.sessionCount}`;
+    const operationSummary = Object.entries(session.summary.byOperation).map(([type, count]) => `${type}: ${count}`).join(" · ");
+    $("[data-handoff-summary]").textContent = operationSummary || `0 ${messages.sessionCount}`;
+    const handoffStatus = $("[data-handoff-status]") as HTMLElement;
+    handoffStatus.hidden = session.status !== "ready";
+    handoffStatus.textContent = session.status === "ready" ? messages.handoffReady : "";
+    handoffButton.textContent = session.status === "ready" ? messages.editInstructions : messages.requestChanges;
+    handoffButton.disabled = session.annotations.length === 0;
     const primary = selected.at(-1);
     meta.replaceChildren();
     if (primary) {
@@ -294,8 +320,8 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const executeVisual = (entry: Omit<HistoryEntry, "redo" | "undo"> & { instruction: ReviewInstruction; apply: () => void; revert: () => void }): void => {
     const full: HistoryEntry = {
       label: entry.label,
-      redo: () => { entry.apply(); if (!session.annotations.some((item) => item.id === entry.instruction.id)) session.annotations.push(entry.instruction); persist(); },
-      undo: () => { entry.revert(); session.annotations = session.annotations.filter((item) => item.id !== entry.instruction.id); persist(); },
+      redo: () => { entry.apply(); if (!session.annotations.some((item) => item.id === entry.instruction.id)) session.annotations.push(entry.instruction); persistSpecificationChange(); },
+      undo: () => { entry.revert(); session.annotations = session.annotations.filter((item) => item.id !== entry.instruction.id); persistSpecificationChange(); },
     };
     history.execute(full);
   };
@@ -330,6 +356,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   commands.register("selection.firstChild", () => selectRelative("firstChild"));
   commands.register("selection.previousSibling", () => selectRelative("previousSibling"));
   commands.register("selection.nextSibling", () => selectRelative("nextSibling"));
+  commands.register("session.submit", () => { submitHandoff(); });
   commands.register("compare.next", () => {
     const modes: CompareMode[] = ["edited", "original", "side-by-side", "overlay"];
     setCompare(modes[(modes.indexOf(compareMode) + 1) % modes.length]!);
@@ -453,7 +480,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     guide.style.width = `${Math.min(widths[value], window.innerWidth)}px`;
     guide.dataset.label = `${value} · ${widths[value]}px (layout guide)`;
     guide.hidden = value === "desktop";
-    persist();
+    persistSpecificationChange();
   };
 
   resizeHandle.addEventListener("pointerdown", (event) => {
@@ -504,6 +531,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
       const rect = rectOf(element); const from = runtimeDeltas.get(element) ?? { x: 0, y: 0 };
       transformElement(element, from, { x: from.x + targetX - rect.x, y: from.y }, rect);
       const last = session.annotations.at(-1); if (last) last.operation = { type: "align", axis: "vertical", delta: { x: targetX - rect.x, y: 0 } };
+      persistSpecificationChange();
     }
   };
   const equalSpacing = (): void => {
@@ -517,6 +545,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
       const rect = rectOf(element); const from = runtimeDeltas.get(element) ?? { x: 0, y: 0 };
       transformElement(element, from, { x: from.x + cursor - rect.x, y: from.y }, rect);
       const lastItem = session.annotations.at(-1); if (lastItem) lastItem.operation = { type: "equal-spacing", axis: "horizontal" };
+      persistSpecificationChange();
       cursor += rect.width + gap;
     }
   };
@@ -535,6 +564,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     else if (action === "text") replaceText();
     else if (action === "align") alignLeft();
     else if (action === "spacing") equalSpacing();
+    else if (action === "handoff") toggleHandoff();
     else if (action === "save-shortcut") {
       config.shortcuts["review.toggle"] = shortcutInput.value;
       const conflicts = findShortcutConflicts(config.shortcuts);
@@ -542,10 +572,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
       saveLocalPreference({ shortcuts: config.shortcuts });
     }
   });
-  shadow.querySelector<HTMLSelectElement>("[data-intent]")!.addEventListener("change", (event) => { intent = (event.target as HTMLSelectElement).value as IntentCategory; });
-  shadow.querySelector<HTMLTextAreaElement>("[data-comment]")!.addEventListener("input", (event) => { comment = (event.target as HTMLTextAreaElement).value; });
-  shadow.querySelector<HTMLSelectElement>("[data-precision]")!.addEventListener("change", (event) => { precision = (event.target as HTMLSelectElement).value as Precision; });
-  shadow.querySelector<HTMLSelectElement>("[data-scope]")!.addEventListener("change", (event) => { applyScope = (event.target as HTMLSelectElement).value as ApplyScope; });
+  shadow.querySelector<HTMLSelectElement>("[data-intent]")!.addEventListener("change", (event) => { intent = (event.target as HTMLSelectElement).value as IntentCategory; persistSpecificationChange(); });
+  shadow.querySelector<HTMLTextAreaElement>("[data-comment]")!.addEventListener("input", (event) => { comment = (event.target as HTMLTextAreaElement).value; persistSpecificationChange(); });
+  shadow.querySelector<HTMLSelectElement>("[data-precision]")!.addEventListener("change", (event) => { precision = (event.target as HTMLSelectElement).value as Precision; persistSpecificationChange(); });
+  shadow.querySelector<HTMLSelectElement>("[data-scope]")!.addEventListener("change", (event) => { applyScope = (event.target as HTMLSelectElement).value as ApplyScope; persistSpecificationChange(); });
   shadow.querySelector<HTMLSelectElement>("[data-compare]")!.addEventListener("change", (event) => setCompare((event.target as HTMLSelectElement).value as CompareMode));
   shadow.querySelector<HTMLSelectElement>("[data-viewport]")!.value = preset;
   shadow.querySelector<HTMLSelectElement>("[data-viewport]")!.addEventListener("change", (event) => setViewport((event.target as HTMLSelectElement).value as ViewportPreset));
@@ -590,7 +620,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     cancelDragPreview();
     cancelResizePreview();
     while (history.canUndo) history.undo();
-    history.clear(); restorePreviewTransforms(); session.annotations = []; selected = []; storage.clear(); render();
+    history.clear(); restorePreviewTransforms(); session.annotations = []; markSessionDraft(session); refreshSessionSummary(session); selected = []; storage.clear(); render();
   }
   function destroy(): void {
     destroyed = true; stop(); clear(); unregisterTools(); detachScrollSync();
@@ -606,6 +636,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   return {
     get session() { return session; }, get active() { return active; }, start, stop, destroy,
     undo: () => { history.undo(); }, redo: () => { history.redo(); },
+    submit: submitHandoff,
     serialize: () => JSON.stringify(session, null, 2), clear,
   };
 }

@@ -7,6 +7,7 @@ export { CommandRegistry, commandForEvent, findShortcutConflicts, normalizeShort
 export { fingerprintElement, resolveFingerprint } from "./core/fingerprint";
 export { HistoryStack } from "./core/history";
 export { sanitizeElementMetadata, sanitizeSnapshot } from "./core/sanitize";
+export { markSessionDraft, refreshSessionSummary, submitSession, summarizeInstructions } from "./core/session";
 export { registerVisualReviewTools } from "./webmcp";
 
 /**

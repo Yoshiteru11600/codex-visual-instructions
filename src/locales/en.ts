@@ -20,5 +20,8 @@ export const en = {
   alignLeft: "Align left",
   equalSpacing: "Equal spacing",
   sessionCount: "instructions",
+  requestChanges: "Request changes in Codex",
+  editInstructions: "Edit instructions",
+  handoffReady: "✓ Ready for Codex",
   removeWarning: "This element may be referenced by JavaScript, event handlers, ARIA relationships, forms, or framework state. The preview does not guarantee runtime behavior after removal. Codex must inspect source dependencies before implementing this change.",
 } as const;

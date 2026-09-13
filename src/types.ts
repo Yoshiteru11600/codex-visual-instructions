@@ -18,6 +18,12 @@ export type ApplyScope =
   | "all-viewports";
 export type CompareMode = "edited" | "original" | "side-by-side" | "overlay";
 export type ViewportPreset = "desktop" | "tablet" | "mobile" | "custom";
+export type ReviewSessionStatus = "draft" | "ready";
+
+export interface ReviewSessionSummary {
+  total: number;
+  byOperation: Record<string, number>;
+}
 
 export type CommandId =
   | "review.toggle"
@@ -90,6 +96,9 @@ export interface ReviewSession {
   route: string;
   viewport: ViewportInfo;
   createdAt: string;
+  status: ReviewSessionStatus;
+  submittedAt?: string;
+  summary: ReviewSessionSummary;
   annotations: ReviewInstruction[];
   implementationInstruction: string;
 }
@@ -129,6 +138,7 @@ export interface VisualReviewHandle {
   destroy(): void;
   undo(): void;
   redo(): void;
+  submit(): boolean;
   serialize(): string;
   clear(): void;
 }

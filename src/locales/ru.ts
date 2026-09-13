@@ -7,5 +7,7 @@ export const ru: Record<keyof typeof en, string> = {
   intent: "Почему?", precision: "Точность", scope: "Область применения", compare: "Сравнение",
   viewport: "Область просмотра", alignLeft: "Выровнять влево", equalSpacing: "Равные интервалы",
   sessionCount: "инструкций",
+  requestChanges: "Запросить изменения в Codex", editInstructions: "Изменить инструкции",
+  handoffReady: "✓ Готово для Codex",
   removeWarning: "На этот элемент могут ссылаться JavaScript, обработчики событий, связи ARIA, формы или состояние фреймворка. Предпросмотр не гарантирует поведение после удаления. Codex должен проверить зависимости исходного кода перед реализацией.",
 };

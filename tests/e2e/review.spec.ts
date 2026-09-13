@@ -27,6 +27,29 @@ test("installs, selects, nudges, edits, undoes, and blocks navigation", async ({
   await expect(page).toHaveURL(/examples\/vanilla/);
 });
 
+test("hands off a non-empty session and returns to draft after editing", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const host = page.locator("[data-codex-visual-instructions]");
+  expect(await host.evaluate((element: any) => element.shadowRoot.querySelector('[data-action="handoff"]').disabled)).toBe(true);
+
+  await page.getByTestId("hero-title").click({ position: { x: 10, y: 10 } });
+  await page.keyboard.press("ArrowRight");
+  expect(await host.evaluate((element: any) => element.shadowRoot.querySelector('[data-action="handoff"]').disabled)).toBe(false);
+  await host.evaluate((element: any) => element.shadowRoot.querySelector('[data-action="handoff"]').click());
+
+  await expect.poll(() => page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+  expect(await page.evaluate(() => (window as any).visualReview.session.submittedAt)).toBeTruthy();
+  expect(await page.evaluate(() => (window as any).visualReview.session.summary)).toEqual({ total: 1, byOperation: { move: 1 } });
+
+  await host.evaluate((element: any) => {
+    const comment = element.shadowRoot.querySelector("[data-comment]");
+    comment.value = "Keep more room around the title";
+    comment.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect.poll(() => page.evaluate(() => (window as any).visualReview.session.status)).toBe("draft");
+  expect(await page.evaluate(() => (window as any).visualReview.session.submittedAt)).toBeUndefined();
+});
+
 test("supports multi-select, hide, compare and locale controls", async ({ page }) => {
   await page.evaluate(() => (window as any).visualReview.start());
   await page.locator(".actions button").nth(0).click();

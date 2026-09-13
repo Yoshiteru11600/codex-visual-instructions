@@ -21,5 +21,8 @@ export const ja: Record<keyof typeof en, string> = {
   alignLeft: "左揃え",
   equalSpacing: "均等配置",
   sessionCount: "件の指示",
+  requestChanges: "Codexへ修正を依頼",
+  editInstructions: "指示を編集する",
+  handoffReady: "✓ Codexへ渡す準備ができています",
   removeWarning: "この要素は JavaScript、イベントハンドラ、ARIA 関係、フォーム、フレームワーク状態から参照されている可能性があります。プレビューは削除後の実行時動作を保証しません。Codex は実装前にソース依存関係を調査する必要があります。",
 };
