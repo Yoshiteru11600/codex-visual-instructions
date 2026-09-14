@@ -69,7 +69,7 @@ test("supports multi-select, hide, compare and locale controls", async ({ page }
     const locale = host.shadowRoot.querySelector("[data-locale]"); locale.value = "ja"; locale.dispatchEvent(new Event("change"));
   });
   await expect.poll(() => page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(2);
-  await expect.poll(() => page.locator("[data-codex-visual-instructions]").evaluate((host: any) => !host.shadowRoot.querySelector("iframe").hidden)).toBe(true);
+  await expect.poll(() => page.locator("[data-codex-visual-instructions]").evaluate((host: any) => !host.shadowRoot.querySelector(".side-compare").hidden)).toBe(true);
 });
 
 test("moves, clamps, persists, and resets the panel without dragging controls", async ({ page }) => {
@@ -158,6 +158,167 @@ test("keeps UI preferences separate from a ready review session", async ({ page 
     preferencesOpen: host.shadowRoot.querySelector('[data-section="preferences"]').open,
   }));
   expect(restored).toEqual({ panelOpacity: "72", compareOpacity: "35", compareMode: "overlay", viewOpen: true, preferencesOpen: true });
+});
+
+test("renders true side-by-side snapshots, syncs scroll, and cleans up", async ({ page }) => {
+  await page.evaluate(async () => {
+    (window as any).visualReview.destroy();
+    const spacer = document.createElement("div"); spacer.id = "compare-spacer"; spacer.style.height = "4000px"; document.body.append(spacer);
+    const modulePath = "/dist/index.js"; const { install } = await import(modulePath);
+    (window as any).visualReview = install({ startActive: true });
+  });
+  await page.getByTestId("hero-title").click({ position: { x: 10, y: 10 } });
+  await page.keyboard.press("ArrowRight");
+  await page.evaluate(() => (window as any).visualReview.confirm());
+  const confirmedAt = await page.evaluate(() => (window as any).visualReview.session.confirmedAt);
+  const beforeBodyStyle = await page.locator("body").getAttribute("style");
+  const host = page.locator("[data-codex-visual-instructions]");
+  await host.evaluate((element: any) => {
+    const select = element.shadowRoot.querySelector("[data-compare]"); select.value = "side-by-side"; select.dispatchEvent(new Event("change"));
+  });
+  const surfaces = await host.evaluate((element: any) => {
+    const root = element.shadowRoot; const wrapper = root.querySelector(".side-compare");
+    return {
+      hidden: wrapper.hidden,
+      columns: [...root.querySelectorAll(".compare-surface")].map((surface: Element) => surface.getBoundingClientRect().width),
+      labels: [...root.querySelectorAll(".side-label")].map((label: Element) => label.textContent),
+      editedHasTitle: root.querySelector("[data-side-edited]").srcdoc.includes("A calmer way"),
+      originalHasTitle: root.querySelector("[data-side-original]").srcdoc.includes("A calmer way"),
+      originalOverlayHidden: root.querySelector(".compare").hidden,
+    };
+  });
+  expect(surfaces.hidden).toBe(false);
+  expect(surfaces.columns[0]!).toBeCloseTo(surfaces.columns[1]!, 0);
+  expect(surfaces.labels).toEqual(["Edited — current preview", "Original — review snapshot"]);
+  expect(surfaces.editedHasTitle).toBe(true); expect(surfaces.originalHasTitle).toBe(true); expect(surfaces.originalOverlayHidden).toBe(true);
+  await page.evaluate(() => window.scrollTo(0, 1200));
+  await expect.poll(() => host.evaluate((element: any) => {
+    const root = element.shadowRoot;
+    return Math.min(root.querySelector("[data-side-edited]").contentWindow.scrollY, root.querySelector("[data-side-original]").contentWindow.scrollY);
+  })).toBeGreaterThan(0);
+  const synced = await host.evaluate((element: any) => {
+    const root = element.shadowRoot;
+    return [root.querySelector("[data-side-edited]").contentWindow.scrollY, root.querySelector("[data-side-original]").contentWindow.scrollY];
+  });
+  expect(synced[0]).toBeGreaterThan(0); expect(synced[1]).toBeCloseTo(synced[0], 0);
+  await host.evaluate((element: any) => {
+    const select = element.shadowRoot.querySelector("[data-compare]"); select.value = "edited"; select.dispatchEvent(new Event("change"));
+  });
+  const cleanup = await host.evaluate((element: any) => ({
+    sideHidden: element.shadowRoot.querySelector(".side-compare").hidden,
+    editedSrcdoc: element.shadowRoot.querySelector("[data-side-edited]").hasAttribute("srcdoc"),
+  }));
+  expect(cleanup).toEqual({ sideHidden: true, editedSrcdoc: false });
+  expect(await page.locator("body").getAttribute("style")).toBe(beforeBodyStyle);
+  expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+  expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBe(confirmedAt);
+});
+
+test("opens localized help without changing a ready session", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  await page.getByTestId("hero-title").click({ position: { x: 10, y: 10 } }); await page.keyboard.press("ArrowRight");
+  await page.evaluate(() => (window as any).visualReview.confirm());
+  const confirmedAt = await page.evaluate(() => (window as any).visualReview.session.confirmedAt);
+  const host = page.locator("[data-codex-visual-instructions]");
+  await host.evaluate((element: any) => element.shadowRoot.querySelector('[data-action="help"]').click());
+  expect(await host.evaluate((element: any) => element.shadowRoot.querySelector("[data-help-dialog]").open)).toBe(true);
+  const english = await host.evaluate((element: any) => element.shadowRoot.querySelector("[data-help-dialog]").textContent);
+  expect(english).toContain("Select an element"); expect(english).toContain("Alt + Shift + Arrow");
+  expect(english).toContain("Side by side"); expect(english).toContain("visual specifications");
+  await host.evaluate((element: any) => {
+    const locale = element.shadowRoot.querySelector("[data-locale]"); locale.value = "ja"; locale.dispatchEvent(new Event("change"));
+  });
+  const japanese = await host.evaluate((element: any) => element.shadowRoot.querySelector("[data-help-dialog]").textContent);
+  expect(japanese).toContain("基本の流れ"); expect(japanese).toContain("Visual Specification");
+  await host.evaluate((element: any) => element.shadowRoot.querySelector('[data-action="close-help"]').click());
+  expect(await host.evaluate((element: any) => element.shadowRoot.querySelector("[data-help-dialog]").open)).toBe(false);
+  expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+  expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBe(confirmedAt);
+});
+
+test("toggles localized field help by mouse click and keyboard activation", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const host = page.locator("[data-codex-visual-instructions]");
+  const helpButtons = host.locator(".field-help");
+  expect(await helpButtons.count()).toBe(5);
+  const textHelp = host.locator("[data-i18n=textHelp]");
+  const textInput = host.locator("[data-text-input]");
+  const inputBefore = await textInput.boundingBox();
+  await helpButtons.nth(0).hover();
+  await expect(textHelp).toBeHidden();
+  await helpButtons.nth(0).click();
+  await expect(textHelp).toBeVisible();
+  await expect(textHelp).toContainText("single direct text node");
+  const textHelpBox = await textHelp.boundingBox();
+  const inputAfter = await textInput.boundingBox();
+  const panelBox = await host.locator(".panel").boundingBox();
+  expect(textHelpBox).not.toBeNull(); expect(inputBefore).not.toBeNull(); expect(inputAfter).not.toBeNull(); expect(panelBox).not.toBeNull();
+  expect(inputAfter!.y).toBe(inputBefore!.y);
+  expect(textHelpBox!.y + textHelpBox!.height).toBeLessThanOrEqual(inputAfter!.y);
+  expect(textHelpBox!.x).toBeGreaterThanOrEqual(panelBox!.x);
+  expect(textHelpBox!.x + textHelpBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width);
+  await helpButtons.nth(0).click();
+  await page.waitForTimeout(200);
+  await expect(textHelp).toBeHidden();
+  const precisionHelp = host.locator("[data-i18n=precisionHelp]");
+  await helpButtons.nth(3).focus();
+  await helpButtons.nth(3).press("Enter");
+  await expect(precisionHelp).toBeVisible();
+  await expect(precisionHelp).toContainText("Relationship prioritizes");
+  await host.evaluate((element: any) => {
+    const locale = element.shadowRoot.querySelector("[data-locale]"); locale.value = "ja"; locale.dispatchEvent(new Event("change"));
+  });
+  await expect(precisionHelp).toContainText("関係性は要素同士の関係");
+  await expect(helpButtons.nth(3)).toHaveAttribute("aria-label", "詳しい説明");
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(0);
+});
+
+test("moves, persists, hides, and recovers the launcher with the shortcut", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  await page.getByTestId("hero-title").click({ position: { x: 10, y: 10 } }); await page.keyboard.press("ArrowRight");
+  await page.evaluate(() => { (window as any).visualReview.confirm(); (window as any).visualReview.stop(); });
+  const confirmedAt = await page.evaluate(() => (window as any).visualReview.session.confirmedAt);
+  const launcher = page.locator("[data-codex-visual-instructions] .launcher");
+  const before = await launcher.boundingBox(); expect(before).not.toBeNull();
+  await page.mouse.move(before!.x + 15, before!.y + 15); await page.mouse.down(); await page.mouse.move(90, 120); await page.mouse.up();
+  const moved = await launcher.boundingBox(); expect(moved!.x).toBeGreaterThanOrEqual(12); expect(moved!.y).toBeGreaterThanOrEqual(12);
+  expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+  expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBe(confirmedAt);
+  await page.reload(); await page.locator("[data-codex-visual-instructions]").waitFor({ state: "attached" });
+  const restored = await launcher.boundingBox(); expect(restored!.x).toBeCloseTo(moved!.x, 0); expect(restored!.y).toBeCloseTo(moved!.y, 0);
+  await page.setViewportSize({ width: 360, height: 500 });
+  await expect.poll(async () => { const box = await launcher.boundingBox(); return box!.x + box!.width; }).toBeLessThanOrEqual(348.5);
+  await page.keyboard.press("Alt+Shift+R");
+  const host = page.locator("[data-codex-visual-instructions]");
+  await host.evaluate((element: any) => {
+    const input = element.shadowRoot.querySelector("[data-launcher-visible]"); input.checked = false; input.dispatchEvent(new Event("change"));
+    element.shadowRoot.querySelector('[data-action="toggle"]').click();
+  });
+  expect(await launcher.isVisible()).toBe(false);
+  await page.keyboard.press("Alt+Shift+R");
+  expect(await page.evaluate(() => (window as any).visualReview.active)).toBe(true);
+  expect(await host.evaluate((element: any) => !element.shadowRoot.querySelector(".panel").hidden)).toBe(true);
+});
+
+test("persists theme and style without leaking appearance into the session", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  await page.getByTestId("hero-title").click({ position: { x: 10, y: 10 } }); await page.keyboard.press("ArrowRight");
+  await page.evaluate(() => (window as any).visualReview.confirm());
+  const confirmedAt = await page.evaluate(() => (window as any).visualReview.session.confirmedAt);
+  const host = page.locator("[data-codex-visual-instructions]");
+  for (const value of ["system", "light", "dark", "high-contrast"]) await host.evaluate((element: any, theme) => {
+    const select = element.shadowRoot.querySelector("[data-theme]"); select.value = theme; select.dispatchEvent(new Event("change"));
+  }, value);
+  await host.evaluate((element: any) => {
+    const select = element.shadowRoot.querySelector("[data-style]"); select.value = "simple"; select.dispatchEvent(new Event("change"));
+  });
+  expect(await host.getAttribute("data-theme")).toBe("high-contrast"); expect(await host.getAttribute("data-style")).toBe("simple");
+  expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+  expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBe(confirmedAt);
+  const serialized = await page.evaluate(() => JSON.parse((window as any).visualReview.serialize()));
+  expect(serialized.appearance).toBeUndefined(); expect(serialized.launcher).toBeUndefined();
+  await page.reload(); await page.locator("[data-codex-visual-instructions]").waitFor({ state: "attached" });
+  expect(await host.getAttribute("data-theme")).toBe("high-contrast"); expect(await host.getAttribute("data-style")).toBe("simple");
 });
 
 test("records mouse drag and resize as visual deltas", async ({ page }) => {

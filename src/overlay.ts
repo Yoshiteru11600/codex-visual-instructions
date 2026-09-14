@@ -27,10 +27,14 @@ const HOST_ATTRIBUTE = "data-codex-visual-instructions";
 const STORAGE_KEY = "codex-visual-instructions:session:v1";
 const PREFERENCES_KEY = "codex-visual-instructions:preferences";
 const PANEL_MARGIN = 12;
+type Theme = "system" | "light" | "dark" | "high-contrast";
+type UiStyle = "modern" | "simple";
 type UiPreferences = {
   panel?: { x?: number; y?: number; opacity?: number };
   compare?: { mode?: CompareMode; opacity?: number };
   sections?: { viewOpen?: boolean; preferencesOpen?: boolean };
+  launcher?: { x?: number; y?: number; visible?: boolean };
+  appearance?: { theme?: Theme; style?: UiStyle };
 };
 const BLOCKED_TAGS = new Set(["SCRIPT", "STYLE", "TEMPLATE", "META", "LINK", "HEAD"]);
 const REMOVE_REQUIREMENTS = [
@@ -40,34 +44,43 @@ const REMOVE_REQUIREMENTS = [
 ];
 
 const styles = `
-  :host { all: initial; color-scheme: dark; pointer-events: none; }
+  :host { all: initial; color-scheme: dark; pointer-events: none; --vi-bg:23 24 32; --vi-fg:#f5f6fb; --vi-muted:#b6b8c6; --vi-control:#282a36; --vi-control-hover:#353849; --vi-surface:#0f1017; --vi-group:#20222d; --vi-border:#ffffff29; --vi-accent:#6d5dfc; --vi-accent-border:#8d82ff; --vi-focus:#8ed7ff; --vi-danger:#ffb5bf; --vi-danger-border:#ff697d70; --vi-success:#b9f3d9; --vi-radius:14px; --vi-control-radius:7px; --vi-shadow:0 18px 60px #0008; --vi-blur:blur(12px); }
+  :host([data-theme="light"]) { color-scheme:light; --vi-bg:250 250 252; --vi-fg:#171820; --vi-muted:#575a69; --vi-control:#fff; --vi-control-hover:#ececf3; --vi-surface:#f0f1f5; --vi-group:#f5f5f9; --vi-border:#20213133; --vi-accent:#5846e8; --vi-accent-border:#6d5dfc; --vi-focus:#005fcc; --vi-danger:#a4152d; --vi-danger-border:#c925425c; --vi-success:#08774f; --vi-shadow:0 18px 50px #24263a35; }
+  :host([data-theme="high-contrast"]) { color-scheme:dark; --vi-bg:0 0 0; --vi-fg:#fff; --vi-muted:#fff; --vi-control:#000; --vi-control-hover:#252525; --vi-surface:#000; --vi-group:#000; --vi-border:#fff; --vi-accent:#ffe600; --vi-accent-border:#ffe600; --vi-focus:#00e5ff; --vi-danger:#ff6b6b; --vi-danger-border:#ff6b6b; --vi-success:#6dff9c; --vi-shadow:0 0 0 2px #fff; --vi-blur:none; }
+  :host([data-style="simple"]) { --vi-radius:4px; --vi-control-radius:2px; --vi-shadow:0 2px 8px #0004; --vi-blur:none; }
+  @media (prefers-color-scheme:light) { :host([data-theme="system"]) { color-scheme:light; --vi-bg:250 250 252; --vi-fg:#171820; --vi-muted:#575a69; --vi-control:#fff; --vi-control-hover:#ececf3; --vi-surface:#f0f1f5; --vi-group:#f5f5f9; --vi-border:#20213133; --vi-accent:#5846e8; --vi-accent-border:#6d5dfc; --vi-focus:#005fcc; --vi-danger:#a4152d; --vi-danger-border:#c925425c; --vi-success:#08774f; --vi-shadow:0 18px 50px #24263a35; } }
   *, *::before, *::after { box-sizing: border-box; }
-  .launcher { position: fixed; z-index: 2147483646; right: 16px; bottom: 16px; border: 0; border-radius: 999px; padding: 10px 15px; background: #6d5dfc; color: #fff; font: 600 13px/1.2 system-ui,sans-serif; box-shadow: 0 8px 28px #0006; cursor: pointer; pointer-events:auto; }
-  .launcher:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid #8ed7ff; outline-offset: 2px; }
-  .panel { --panel-opacity: .95; position: fixed; z-index: 2147483646; right: 12px; top: 12px; width: 330px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow: auto; border: 1px solid #ffffff26; border-radius: 14px; background: rgb(23 24 32 / var(--panel-opacity)); color: #f5f6fb; font: 13px/1.4 system-ui,sans-serif; box-shadow: 0 18px 60px #0008; backdrop-filter: blur(12px); pointer-events:auto; }
-  .panel[hidden], .compare[hidden], .guide[hidden], .resize[hidden] { display: none; }
-  .head { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid #ffffff1c; position:sticky; top:0; background:rgb(23 24 32 / var(--panel-opacity)); z-index:2; cursor:grab; touch-action:none; user-select:none; }
+  .launcher { position: fixed; z-index: 2147483646; right: 16px; bottom: 16px; border: 1px solid var(--vi-accent-border); border-radius: 999px; padding: 10px 15px; background: var(--vi-accent); color: #fff; font: 600 13px/1.2 system-ui,sans-serif; box-shadow: 0 8px 28px #0006; cursor: grab; touch-action:none; user-select:none; pointer-events:auto; }
+  .launcher:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid var(--vi-focus); outline-offset: 2px; }
+  .panel { --panel-opacity: .95; position: fixed; z-index: 2147483646; right: 12px; top: 12px; width: 330px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow: auto; border: 1px solid var(--vi-border); border-radius: var(--vi-radius); background: rgb(var(--vi-bg) / var(--panel-opacity)); color: var(--vi-fg); font: 13px/1.4 system-ui,sans-serif; box-shadow: var(--vi-shadow); backdrop-filter: var(--vi-blur); pointer-events:auto; }
+  .panel[hidden], .compare[hidden], .side-compare[hidden], .guide[hidden], .resize[hidden] { display: none; }
+  .head { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid var(--vi-border); position:sticky; top:0; background:rgb(var(--vi-bg) / var(--panel-opacity)); z-index:2; cursor:grab; touch-action:none; user-select:none; }
   .head:active { cursor:grabbing; } .head button { cursor:pointer; }
-  .head strong { font-size:14px; } .head small { color:#b6b8c6; }
+  .head strong { font-size:14px; } .head small { color:var(--vi-muted); } .head-actions { display:flex; gap:6px; }
   .body { padding: 12px; display:grid; gap:10px; }
   .row { display:flex; gap:7px; align-items:center; flex-wrap:wrap; }
-  button, select, input, textarea { border:1px solid #ffffff29; border-radius:7px; background:#282a36; color:#f8f8fb; font:inherit; }
-  button { padding:6px 9px; cursor:pointer; } button:hover { background:#353849; } button:disabled { opacity:.42; cursor:default; }
+  button, select, input, textarea { border:1px solid var(--vi-border); border-radius:var(--vi-control-radius); background:var(--vi-control); color:var(--vi-fg); font:inherit; }
+  button { padding:6px 9px; cursor:pointer; } button:hover { background:var(--vi-control-hover); } button:disabled { opacity:.48; cursor:default; }
   select, input, textarea { padding:6px 8px; min-width:0; } select { flex:1; }
   textarea { width:100%; min-height:58px; resize:vertical; }
-  label { color:#c9cad5; font-size:11px; display:grid; gap:4px; flex:1; min-width:120px; }
-  .meta { padding:9px; border-radius:8px; background:#0f1017; color:#d9dae3; overflow-wrap:anywhere; }
-  .meta code { color:#9fe7d7; } .hint { color:#989bab; font-size:11px; }
-  .danger { border-color:#ff697d70; color:#ffb5bf; }
-  .active { background:#6d5dfc; border-color:#8d82ff; }
-  .handoff { padding:10px; border:1px solid #ffffff1c; border-radius:9px; background:#20222d; display:grid; gap:7px; }
-  .handoff .primary { width:100%; padding:9px 12px; background:#6d5dfc; border-color:#8d82ff; font-weight:650; }
-  .handoff .primary:hover { background:#7a6cfe; } .handoff .primary:disabled { background:#282a36; }
-  .handoff-status { margin:0; color:#b9f3d9; font-size:12px; } .handoff-summary { color:#b6b8c6; font-size:11px; }
-  details { border-top:1px solid #ffffff1c; padding-top:8px; } details summary { cursor:pointer; color:#f5f6fb; font-weight:650; padding:3px 0; }
+  label { color:var(--vi-muted); font-size:11px; display:grid; gap:4px; flex:1; min-width:120px; }
+  .field-title { position:relative; display:flex; align-items:center; gap:5px; width:max-content; max-width:100%; }
+  .field-help { display:inline-grid; place-items:center; width:18px; height:18px; padding:0; border-radius:50%; font-size:11px; font-weight:750; line-height:1; }
+  .field-tooltip { position:absolute; z-index:5; left:calc(100% - 14px); bottom:calc(100% - 4px); width:230px; padding:8px 9px; border:1px solid var(--vi-border); border-radius:var(--vi-control-radius); background:rgb(var(--vi-bg)); color:var(--vi-fg); box-shadow:var(--vi-shadow); font-size:11px; font-weight:400; line-height:1.4; pointer-events:none; opacity:0; visibility:hidden; transform:translateY(5px) scale(.98); transform-origin:bottom left; transition:opacity .16s ease,transform .16s ease,visibility 0s linear .16s; }
+  .field-tooltip.is-visible { opacity:1; visibility:visible; transform:translateY(0) scale(1); transition-delay:0s; }
+  .row > label:last-child .field-tooltip { right:-4px; left:auto; transform-origin:bottom right; }
+  .meta { padding:9px; border-radius:var(--vi-control-radius); background:var(--vi-surface); color:var(--vi-fg); overflow-wrap:anywhere; }
+  .meta code { color:var(--vi-success); } .hint { color:var(--vi-muted); font-size:11px; }
+  .danger { border-color:var(--vi-danger-border); color:var(--vi-danger); }
+  .active { background:var(--vi-accent); border-color:var(--vi-accent-border); }
+  .handoff { padding:10px; border:1px solid var(--vi-border); border-radius:var(--vi-control-radius); background:var(--vi-group); display:grid; gap:7px; }
+  .handoff .primary { width:100%; padding:9px 12px; background:var(--vi-accent); border-color:var(--vi-accent-border); color:#fff; font-weight:650; }
+  .handoff .primary:hover { filter:brightness(1.08); } .handoff .primary:disabled { background:var(--vi-control); color:var(--vi-muted); }
+  .handoff-status { margin:0; color:var(--vi-success); font-size:12px; } .handoff-summary { color:var(--vi-muted); font-size:11px; }
+  details { border-top:1px solid var(--vi-border); padding-top:8px; } details summary { cursor:pointer; color:var(--vi-fg); font-weight:650; padding:3px 0; }
   details .section-body { display:grid; gap:10px; padding-top:9px; }
-  input[type="range"] { width:100%; padding:0; accent-color:#6d5dfc; }
-  .range-value { color:#f5f6fb; font-variant-numeric:tabular-nums; }
+  input[type="range"] { width:100%; padding:0; accent-color:var(--vi-accent); }
+  .range-value { color:var(--vi-fg); font-variant-numeric:tabular-nums; }
   .hover, .selection { position:fixed; z-index:2147483644; pointer-events:none; border:2px solid #6d5dfc; border-radius:3px; }
   .hover { border-style:dashed; border-color:#45d7b0; }
   .selection::after { content:attr(data-label); position:absolute; left:-2px; top:-20px; padding:2px 5px; color:white; background:#6d5dfc; border-radius:3px 3px 0 0; font:10px/1.4 system-ui,sans-serif; white-space:nowrap; }
@@ -76,10 +89,16 @@ const styles = `
   .compare.original { inset:0; width:100vw; height:100vh; }
   .compare.side-by-side { top:0; right:0; width:50vw; height:100vh; border-left:3px solid #6d5dfc; }
   .compare.overlay { inset:0; width:100vw; height:100vh; opacity:.5; pointer-events:none; }
+  .side-compare { position:fixed; inset:0; z-index:2147483643; display:grid; grid-template-columns:1fr 1fr; background:#fff; pointer-events:none; }
+  .compare-surface { position:relative; overflow:hidden; height:100vh; background:#fff; }
+  .compare-surface + .compare-surface { border-left:3px solid var(--vi-accent); }
+  .compare-surface iframe { position:absolute; inset:0; width:200%; height:200%; border:0; transform:scale(.5); transform-origin:top left; pointer-events:none; }
+  .side-label { position:absolute; z-index:1; top:10px; left:10px; padding:4px 8px; border-radius:999px; background:#111c; color:#fff; font:600 11px/1.3 system-ui,sans-serif; }
   .guide { position:fixed; z-index:2147483642; top:0; left:50%; height:100vh; border:1px dashed #6d5dfc99; background:#6d5dfc0c; pointer-events:none; transform:translateX(-50%); }
   .guide::before { content:attr(data-label); position:absolute; top:8px; left:8px; padding:3px 6px; border-radius:4px; background:#6d5dfc; color:#fff; font:11px system-ui,sans-serif; }
-  dialog { max-width:430px; border:1px solid #ff697d70; border-radius:12px; background:#1d1f29; color:#fff; padding:18px; font:13px/1.5 system-ui,sans-serif; pointer-events:auto; }
+  dialog { max-width:560px; max-height:calc(100vh - 32px); overflow:auto; border:1px solid var(--vi-border); border-radius:var(--vi-radius); background:rgb(var(--vi-bg)); color:var(--vi-fg); padding:18px; font:13px/1.5 system-ui,sans-serif; pointer-events:auto; }
   dialog::backdrop { background:#0009; } dialog .row { justify-content:flex-end; margin-top:14px; }
+  .help-content { display:grid; gap:12px; } .help-content h2 { margin:0; font-size:18px; } .help-content h3 { margin:0 0 3px; font-size:13px; } .help-content p { margin:0; color:var(--vi-muted); }
 `;
 
 const id = (prefix: string): string =>
@@ -126,6 +145,11 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   let panelOpacity = Math.min(1, Math.max(0.6, localPreferences.panel?.opacity ?? 0.95));
   let panelPosition = localPreferences.panel?.x === undefined || localPreferences.panel?.y === undefined
     ? null : { x: localPreferences.panel.x, y: localPreferences.panel.y };
+  let launcherPosition = localPreferences.launcher?.x === undefined || localPreferences.launcher?.y === undefined
+    ? null : { x: localPreferences.launcher.x, y: localPreferences.launcher.y };
+  let launcherVisible = localPreferences.launcher?.visible ?? true;
+  let theme: Theme = localPreferences.appearance?.theme ?? "system";
+  let uiStyle: UiStyle = localPreferences.appearance?.style ?? "modern";
   let preset: ViewportPreset = config.review.defaultViewport;
   let selected: HTMLElement[] = [];
   let hoverTarget: HTMLElement | null = null;
@@ -164,15 +188,15 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   shell.innerHTML = `
     <button class="launcher" type="button" data-action="toggle"></button>
     <section class="panel" data-i18n-aria="title" hidden>
-      <header class="head"><div><strong data-i18n="title"></strong><br><small data-count></small></div><button type="button" data-action="toggle"></button></header>
+      <header class="head"><div><strong data-i18n="title"></strong><br><small data-count></small></div><div class="head-actions"><button type="button" data-action="help" data-i18n="help"></button><button type="button" data-action="toggle"></button></div></header>
       <div class="body">
         <div class="row"><button data-action="undo" data-i18n="undo"></button><button data-action="redo" data-i18n="redo"></button><button data-action="clear-selection" data-i18n="clear"></button></div>
         <div class="meta" data-meta></div>
         <div class="row"><button data-action="hide" data-i18n="hide"></button><button class="danger" data-action="remove" data-i18n="remove"></button><button data-action="align" data-i18n="alignLeft"></button><button data-action="spacing" data-i18n="equalSpacing"></button></div>
-        <label><span data-i18n="editText"></span><div class="row"><input data-text-input type="text" autocomplete="off"><button data-action="text" data-i18n="applyText"></button></div><small class="hint" data-text-warning></small></label>
-        <label><span data-i18n="intent"></span><select data-intent><option value="spacing" data-i18n="spacingOption"></option><option value="alignment" data-i18n="alignmentOption"></option><option value="visual-hierarchy" data-i18n="visualHierarchyOption"></option><option value="responsive" data-i18n="responsiveOption"></option><option value="copy" data-i18n="copyOption"></option><option value="visibility" data-i18n="visibilityOption"></option><option value="interaction" data-i18n="interactionOption"></option><option value="exact-position" data-i18n="exactPositionOption"></option><option value="other" data-i18n="otherOption" selected></option></select></label>
-        <label><span data-i18n="comment"></span><textarea data-comment maxlength="1000"></textarea></label>
-        <div class="row"><label><span data-i18n="precision"></span><select data-precision><option value="exact" data-i18n="exactOption"></option><option value="approximate" data-i18n="approximateOption" selected></option><option value="relationship" data-i18n="relationshipOption"></option><option value="intent-only" data-i18n="intentOnlyOption"></option></select></label><label><span data-i18n="scope"></span><select data-scope><option value="current-viewport" data-i18n="currentViewportOption"></option><option value="current-breakpoint" data-i18n="currentBreakpointOption"></option><option value="all-narrower" data-i18n="allNarrowerOption"></option><option value="all-wider" data-i18n="allWiderOption"></option><option value="all-viewports" data-i18n="allViewportsOption"></option></select></label></div>
+        <label><span class="field-title"><span data-i18n="editText"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="textHelp"></span></span><div class="row"><input data-text-input type="text" autocomplete="off"><button data-action="text" data-i18n="applyText"></button></div><small class="hint" data-text-warning></small></label>
+        <label><span class="field-title"><span data-i18n="intent"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="intentHelp"></span></span><select data-intent><option value="spacing" data-i18n="spacingOption"></option><option value="alignment" data-i18n="alignmentOption"></option><option value="visual-hierarchy" data-i18n="visualHierarchyOption"></option><option value="responsive" data-i18n="responsiveOption"></option><option value="copy" data-i18n="copyOption"></option><option value="visibility" data-i18n="visibilityOption"></option><option value="interaction" data-i18n="interactionOption"></option><option value="exact-position" data-i18n="exactPositionOption"></option><option value="other" data-i18n="otherOption" selected></option></select></label>
+        <label><span class="field-title"><span data-i18n="comment"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="commentHelp"></span></span><textarea data-comment maxlength="1000"></textarea></label>
+        <div class="row"><label><span class="field-title"><span data-i18n="precision"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="precisionHelp"></span></span><select data-precision><option value="exact" data-i18n="exactOption"></option><option value="approximate" data-i18n="approximateOption" selected></option><option value="relationship" data-i18n="relationshipOption"></option><option value="intent-only" data-i18n="intentOnlyOption"></option></select></label><label><span class="field-title"><span data-i18n="scope"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="scopeHelp"></span></span><select data-scope><option value="current-viewport" data-i18n="currentViewportOption"></option><option value="current-breakpoint" data-i18n="currentBreakpointOption"></option><option value="all-narrower" data-i18n="allNarrowerOption"></option><option value="all-wider" data-i18n="allWiderOption"></option><option value="all-viewports" data-i18n="allViewportsOption"></option></select></label></div>
         <div class="handoff"><div class="handoff-summary" data-handoff-summary></div><p class="handoff-status" data-handoff-status hidden></p><button class="primary" type="button" data-action="handoff"></button></div>
         <details data-section="view"><summary data-i18n="view"></summary><div class="section-body">
           <div class="row"><label><span data-i18n="compare"></span><select data-compare><option value="edited" data-i18n="editedOption"></option><option value="original" data-i18n="originalOption"></option><option value="side-by-side" data-i18n="sideBySideOption"></option><option value="overlay" data-i18n="overlayOption"></option></select></label><label><span data-i18n="viewport"></span><select data-viewport><option value="desktop" data-i18n="desktopOption"></option><option value="tablet" data-i18n="tabletOption"></option><option value="mobile" data-i18n="mobileOption"></option><option value="custom" data-i18n="customOption"></option></select></label></div>
@@ -181,16 +205,21 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
         <details data-section="preferences"><summary data-i18n="preferences"></summary><div class="section-body">
           <div class="row"><label><span data-i18n="language"></span><select data-locale><option value="auto" data-i18n="autoOption"></option><option value="en">English</option><option value="ja">日本語</option><option value="fr">Français</option><option value="ru">Русский</option></select></label></div>
           <label><span><span data-i18n="panelOpacity"></span>: <output class="range-value" data-panel-opacity-value></output></span><input data-panel-opacity type="range" min="60" max="100" step="1" data-i18n-aria="panelOpacity"></label>
+          <div class="row"><label><span data-i18n="theme"></span><select data-theme><option value="system" data-i18n="systemTheme"></option><option value="light" data-i18n="lightTheme"></option><option value="dark" data-i18n="darkTheme"></option><option value="high-contrast" data-i18n="highContrastTheme"></option></select></label><label><span data-i18n="style"></span><select data-style><option value="modern" data-i18n="modernStyle"></option><option value="simple" data-i18n="simpleStyle"></option></select></label></div>
+          <label class="row"><input data-launcher-visible type="checkbox"><span data-i18n="showLauncher"></span></label>
           <label><span data-i18n="toggleShortcut"></span><div class="row"><input data-shortcut-input><button data-action="save-shortcut" data-i18n="save"></button></div><small class="hint" data-shortcut-warning></small></label>
           <button type="button" data-action="reset-panel" data-i18n="resetPanelPosition"></button>
+          <button type="button" data-action="reset-launcher" data-i18n="resetLauncherPosition"></button>
           <p class="hint" data-i18n="shortcutHint"></p>
         </div></details>
       </div>
     </section>
     <div class="hover" hidden></div><div data-selections></div><div class="resize" role="slider" data-i18n-aria="resizeLabel" hidden></div>
     <iframe class="compare" data-i18n-title="originalSnapshotTitle" sandbox="allow-same-origin" hidden></iframe>
+    <div class="side-compare" hidden><div class="compare-surface"><span class="side-label" data-i18n="editedSurface"></span><iframe data-side-edited sandbox="allow-same-origin"></iframe></div><div class="compare-surface"><span class="side-label" data-i18n="originalSurface"></span><iframe data-side-original sandbox="allow-same-origin"></iframe></div></div>
     <div class="guide" hidden></div>
-    <dialog><p data-warning></p><div class="row"><button data-action="cancel-remove" data-i18n="cancel"></button><button class="danger" data-action="confirm-remove" data-i18n="removePreview"></button></div></dialog>
+    <dialog data-remove-dialog><p data-warning></p><div class="row"><button data-action="cancel-remove" data-i18n="cancel"></button><button class="danger" data-action="confirm-remove" data-i18n="removePreview"></button></div></dialog>
+    <dialog data-help-dialog><div class="help-content"><h2 data-i18n="helpTitle"></h2><section><h3 data-i18n="helpFlowTitle"></h3><p data-i18n="helpFlow"></p></section><section><h3 data-i18n="helpEditingTitle"></h3><p data-i18n="helpEditing"></p></section><section><h3 data-i18n="helpKeyboardTitle"></h3><p data-i18n="helpKeyboard"></p></section><section><h3 data-i18n="helpCompareTitle"></h3><p data-i18n="helpCompare"></p></section><section><h3 data-i18n="helpPrecisionTitle"></h3><p data-i18n="helpPrecision"></p></section><section><h3 data-i18n="helpScopeTitle"></h3><p data-i18n="helpScope"></p></section><section><h3 data-i18n="helpHandoffTitle"></h3><p data-i18n="helpHandoff"></p></section></div><div class="row"><button data-action="close-help" data-i18n="closeHelp"></button></div></dialog>
   `;
   shadow.append(shell);
   document.documentElement.append(host);
@@ -202,8 +231,12 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const selectionLayer = $("[data-selections]") as HTMLElement;
   const resizeHandle = $(".resize") as HTMLElement;
   const compareFrame = $(".compare") as HTMLIFrameElement;
+  const sideCompare = $(".side-compare") as HTMLElement;
+  const editedSideFrame = $("[data-side-edited]") as HTMLIFrameElement;
+  const originalSideFrame = $("[data-side-original]") as HTMLIFrameElement;
   const guide = $(".guide") as HTMLElement;
-  const dialog = $("dialog") as HTMLDialogElement;
+  const dialog = $("[data-remove-dialog]") as HTMLDialogElement;
+  const helpDialog = $("[data-help-dialog]") as HTMLDialogElement;
   const meta = $("[data-meta]") as HTMLElement;
   const textInput = $("[data-text-input]") as HTMLInputElement;
   const shortcutInput = $("[data-shortcut-input]") as HTMLInputElement;
@@ -214,11 +247,37 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const preferencesSection = $("[data-section=preferences]") as HTMLDetailsElement;
   const panelOpacityInput = $("[data-panel-opacity]") as HTMLInputElement;
   const compareOpacityInput = $("[data-compare-opacity]") as HTMLInputElement;
+  const launcherVisibleInput = $("[data-launcher-visible]") as HTMLInputElement;
+  const themeInput = $("[data-theme]") as HTMLSelectElement;
+  const styleInput = $("[data-style]") as HTMLSelectElement;
 
   compareFrame.srcdoc = originalSnapshot;
+  originalSideFrame.srcdoc = originalSnapshot;
   shortcutInput.value = config.shortcuts["review.toggle"] ?? "Alt+Shift+R";
   viewSection.open = localPreferences.sections?.viewOpen ?? false;
   preferencesSection.open = localPreferences.sections?.preferencesOpen ?? false;
+
+  const fieldHelpButtons = [...shadow.querySelectorAll<HTMLButtonElement>(".field-help")];
+  const closeFieldHelp = (except?: HTMLButtonElement): void => {
+    for (const button of fieldHelpButtons) {
+      if (button === except) continue;
+      const tooltip = button.nextElementSibling as HTMLElement;
+      tooltip.classList.remove("is-visible");
+      button.setAttribute("aria-expanded", "false");
+    }
+  };
+  fieldHelpButtons.forEach((button, index) => {
+    const tooltip = button.nextElementSibling as HTMLElement;
+    tooltip.id = `visual-field-help-${index + 1}`;
+    button.setAttribute("aria-controls", tooltip.id);
+    button.setAttribute("aria-expanded", "false");
+    button.addEventListener("click", () => {
+      const willOpen = !tooltip.classList.contains("is-visible");
+      closeFieldHelp(willOpen ? button : undefined);
+      tooltip.classList.toggle("is-visible", willOpen);
+      button.setAttribute("aria-expanded", String(willOpen));
+    });
+  });
 
   const persist = (): void => { session.viewport = viewportInfo(preset); refreshSessionSummary(session); storage.save(session); render(); };
   const persistSpecificationChange = (): void => { markSessionDraft(session); persist(); };
@@ -234,7 +293,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const saveLocalPreference = (patch: Record<string, unknown>): void => {
     try {
       const current = JSON.parse(localStorage.getItem(PREFERENCES_KEY) ?? "{}");
-      for (const key of ["panel", "compare", "sections", "review", "shortcuts"]) {
+      for (const key of ["panel", "compare", "sections", "review", "shortcuts", "launcher", "appearance"]) {
         if (typeof patch[key] === "object" && patch[key] !== null) patch[key] = { ...(current[key] ?? {}), ...(patch[key] as object) };
       }
       localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ ...current, ...patch }));
@@ -278,6 +337,33 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     panel.style.right = `${PANEL_MARGIN}px`;
     saveLocalPreference({ panel: { x: undefined, y: undefined, opacity: panelOpacity } });
   };
+  const clampLauncherPosition = (position: { x: number; y: number }): { x: number; y: number } => {
+    const rect = launcher.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max(PANEL_MARGIN, window.innerWidth - rect.width - PANEL_MARGIN), Math.max(PANEL_MARGIN, position.x)),
+      y: Math.min(Math.max(PANEL_MARGIN, window.innerHeight - rect.height - PANEL_MARGIN), Math.max(PANEL_MARGIN, position.y)),
+    };
+  };
+  const applyLauncherPosition = (): void => {
+    if (!launcherPosition || launcher.hidden) return;
+    launcherPosition = clampLauncherPosition(launcherPosition);
+    launcher.style.left = `${launcherPosition.x}px`;
+    launcher.style.top = `${launcherPosition.y}px`;
+    launcher.style.right = "auto";
+    launcher.style.bottom = "auto";
+  };
+  const resetLauncherPosition = (): void => {
+    launcherPosition = null;
+    launcher.style.left = "auto"; launcher.style.top = "auto";
+    launcher.style.right = "16px"; launcher.style.bottom = "16px";
+    saveLocalPreference({ launcher: { x: undefined, y: undefined, visible: launcherVisible } });
+  };
+  const applyAppearance = (): void => {
+    host.dataset.theme = theme;
+    host.dataset.style = uiStyle;
+    themeInput.value = theme;
+    styleInput.value = uiStyle;
+  };
 
   const updateBoxes = (): void => {
     if (hoverTarget && active) {
@@ -305,8 +391,11 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
 
   const render = (): void => {
     renderTranslations();
+    applyAppearance();
     panel.hidden = !active;
-    launcher.hidden = active;
+    launcher.hidden = active || !launcherVisible;
+    launcherVisibleInput.checked = launcherVisible;
+    applyLauncherPosition();
     applyPanelPosition();
     panelOpacityInput.value = String(Math.round(panelOpacity * 100));
     compareOpacityInput.value = String(Math.round(compareOpacity * 100));
@@ -438,7 +527,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   });
 
   const onPointerMove = (event: PointerEvent): void => {
-    if (!active || event.composedPath().includes(host)) return;
+    if (!active || compareMode === "side-by-side" || event.composedPath().includes(host)) return;
     const candidate = document.elementFromPoint(event.clientX, event.clientY);
     hoverTarget = isSelectable(candidate, host) ? candidate : null;
     updateBoxes();
@@ -454,7 +543,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     applyPreviewTransform(current.target, current.from);
   };
   const onPointerDown = (event: PointerEvent): void => {
-    if (!active || event.composedPath().includes(host) || !(event.target instanceof HTMLElement)) return;
+    if (!active || compareMode === "side-by-side" || event.composedPath().includes(host) || !(event.target instanceof HTMLElement)) return;
     if (selected.includes(event.target) && event.button === 0) {
       drag = { target: event.target, startX: event.clientX, startY: event.clientY, from: runtimeDeltas.get(event.target) ?? { x: 0, y: 0 }, before: rectOf(event.target), moved: false };
       event.preventDefault(); event.stopImmediatePropagation();
@@ -482,6 +571,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
 
   const onClick = (event: MouseEvent): void => {
     if (!active || event.composedPath().includes(host)) return;
+    if (compareMode === "side-by-side") { event.preventDefault(); event.stopImmediatePropagation(); return; }
     if (canceledDragTarget && event.composedPath().includes(canceledDragTarget)) {
       canceledDragTarget = null;
       event.preventDefault(); event.stopImmediatePropagation();
@@ -564,10 +654,41 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   };
   panelHeader.addEventListener("pointerup", finishPanelDrag);
   panelHeader.addEventListener("pointercancel", finishPanelDrag);
+  let launcherDrag: { pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null = null;
+  let suppressLauncherClick = false;
+  launcher.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const rect = launcher.getBoundingClientRect();
+    launcherDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: rect.left, originY: rect.top, moved: false };
+    launcher.setPointerCapture(event.pointerId);
+  });
+  launcher.addEventListener("pointermove", (event) => {
+    if (!launcherDrag || event.pointerId !== launcherDrag.pointerId) return;
+    const dx = event.clientX - launcherDrag.startX; const dy = event.clientY - launcherDrag.startY;
+    if (!launcherDrag.moved && Math.hypot(dx, dy) < 4) return;
+    launcherDrag.moved = true;
+    launcherPosition = clampLauncherPosition({ x: launcherDrag.originX + dx, y: launcherDrag.originY + dy });
+    applyLauncherPosition();
+    event.preventDefault();
+  });
+  const finishLauncherDrag = (event: PointerEvent): void => {
+    if (!launcherDrag || event.pointerId !== launcherDrag.pointerId) return;
+    const moved = launcherDrag.moved; launcherDrag = null;
+    if (!moved || !launcherPosition) return;
+    suppressLauncherClick = true;
+    saveLocalPreference({ launcher: { ...launcherPosition, visible: launcherVisible } });
+    window.setTimeout(() => { suppressLauncherClick = false; }, 0);
+  };
+  launcher.addEventListener("pointerup", finishLauncherDrag);
+  launcher.addEventListener("pointercancel", finishLauncherDrag);
 
   const setCompare = (mode: CompareMode, save = true): void => {
     compareMode = mode;
-    compareFrame.hidden = mode === "edited";
+    const sideBySide = mode === "side-by-side";
+    sideCompare.hidden = !sideBySide;
+    if (sideBySide) editedSideFrame.srcdoc = sanitizeSnapshot(document.documentElement);
+    else editedSideFrame.removeAttribute("srcdoc");
+    compareFrame.hidden = mode === "edited" || sideBySide;
     compareFrame.className = `compare ${mode}`;
     compareFrame.style.opacity = mode === "overlay" ? String(compareOpacity) : "";
     (shadow.querySelector("[data-compare]") as HTMLSelectElement).value = mode;
@@ -655,6 +776,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   shadow.addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>("button[data-action]"); if (!button) return;
     const action = button.dataset.action;
+    if (button === launcher && suppressLauncherClick) { event.preventDefault(); return; }
     if (action === "toggle") { if (active) stop(); else start(); }
     else if (action === "undo") history.undo();
     else if (action === "redo") history.redo();
@@ -667,7 +789,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     else if (action === "align") alignLeft();
     else if (action === "spacing") equalSpacing();
     else if (action === "handoff") toggleHandoff();
+    else if (action === "help") helpDialog.showModal();
+    else if (action === "close-help") helpDialog.close();
     else if (action === "reset-panel") resetPanelPosition();
+    else if (action === "reset-launcher") resetLauncherPosition();
     else if (action === "save-shortcut") {
       config.shortcuts["review.toggle"] = shortcutInput.value;
       const conflicts = findShortcutConflicts(config.shortcuts);
@@ -702,6 +827,21 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     $("[data-compare-opacity-value]").textContent = `${compareOpacityInput.value}%`;
     saveLocalPreference({ compare: { mode: compareMode, opacity: compareOpacity } });
   });
+  launcherVisibleInput.addEventListener("change", () => {
+    launcherVisible = launcherVisibleInput.checked;
+    saveLocalPreference({ launcher: { ...(launcherPosition ?? {}), visible: launcherVisible } });
+    render();
+  });
+  themeInput.addEventListener("change", () => {
+    theme = themeInput.value as Theme;
+    saveLocalPreference({ appearance: { theme, style: uiStyle } });
+    applyAppearance();
+  });
+  styleInput.addEventListener("change", () => {
+    uiStyle = styleInput.value as UiStyle;
+    saveLocalPreference({ appearance: { theme, style: uiStyle } });
+    applyAppearance();
+  });
   viewSection.addEventListener("toggle", () => saveLocalPreference({ sections: { viewOpen: viewSection.open } }));
   preferencesSection.addEventListener("toggle", () => saveLocalPreference({ sections: { preferencesOpen: preferencesSection.open } }));
   let scrollSyncHandler: (() => void) | null = null;
@@ -714,19 +854,25 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     if (config.review.scrollSync !== "ratio" || compareMode === "edited") return;
     scrollSyncHandler = (): void => {
       const max = Math.max(1, document.documentElement.scrollHeight - innerHeight);
-      const frameWindow = compareFrame.contentWindow; const frameDocument = compareFrame.contentDocument;
-      if (!frameWindow || !frameDocument) return;
-      const frameMax = Math.max(1, frameDocument.documentElement.scrollHeight - compareFrame.clientHeight);
-      frameWindow.scrollTo(0, scrollY / max * frameMax);
+      const frames = compareMode === "side-by-side" ? [editedSideFrame, originalSideFrame] : [compareFrame];
+      for (const frame of frames) {
+        const frameWindow = frame.contentWindow; const frameDocument = frame.contentDocument;
+        if (!frameWindow || !frameDocument) continue;
+        const frameMax = Math.max(1, frameDocument.documentElement.scrollHeight - frame.clientHeight);
+        frameWindow.scrollTo(0, scrollY / max * frameMax);
+      }
     };
     window.addEventListener("scroll", scrollSyncHandler, { passive: true });
+    scrollSyncHandler();
   }
   const onCompareLoad = (): void => { attachScrollSync(); };
   compareFrame.addEventListener("load", onCompareLoad);
+  editedSideFrame.addEventListener("load", onCompareLoad);
+  originalSideFrame.addEventListener("load", onCompareLoad);
   window.addEventListener("scroll", updateBoxes, { passive: true });
   const onWindowResize = (): void => {
-    applyPanelPosition(); updateBoxes();
-    window.requestAnimationFrame(() => { if (!destroyed) applyPanelPosition(); });
+    applyPanelPosition(); applyLauncherPosition(); updateBoxes();
+    window.requestAnimationFrame(() => { if (!destroyed) { applyPanelPosition(); applyLauncherPosition(); } });
   };
   window.addEventListener("resize", onWindowResize, { passive: true });
   document.addEventListener("keydown", onKeyDown, true);
@@ -747,6 +893,8 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   function destroy(): void {
     destroyed = true; stop(); clear(); unregisterTools(); detachScrollSync();
     compareFrame.removeEventListener("load", onCompareLoad);
+    editedSideFrame.removeEventListener("load", onCompareLoad);
+    originalSideFrame.removeEventListener("load", onCompareLoad);
     document.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("scroll", updateBoxes);
     window.removeEventListener("resize", onWindowResize);
