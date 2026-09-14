@@ -25,6 +25,13 @@ import { registerVisualReviewTools } from "./webmcp";
 
 const HOST_ATTRIBUTE = "data-codex-visual-instructions";
 const STORAGE_KEY = "codex-visual-instructions:session:v1";
+const PREFERENCES_KEY = "codex-visual-instructions:preferences";
+const PANEL_MARGIN = 12;
+type UiPreferences = {
+  panel?: { x?: number; y?: number; opacity?: number };
+  compare?: { mode?: CompareMode; opacity?: number };
+  sections?: { viewOpen?: boolean; preferencesOpen?: boolean };
+};
 const BLOCKED_TAGS = new Set(["SCRIPT", "STYLE", "TEMPLATE", "META", "LINK", "HEAD"]);
 const REMOVE_REQUIREMENTS = [
   "Inspect JavaScript and framework references before deleting source.",
@@ -37,9 +44,10 @@ const styles = `
   *, *::before, *::after { box-sizing: border-box; }
   .launcher { position: fixed; z-index: 2147483646; right: 16px; bottom: 16px; border: 0; border-radius: 999px; padding: 10px 15px; background: #6d5dfc; color: #fff; font: 600 13px/1.2 system-ui,sans-serif; box-shadow: 0 8px 28px #0006; cursor: pointer; pointer-events:auto; }
   .launcher:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid #8ed7ff; outline-offset: 2px; }
-  .panel { position: fixed; z-index: 2147483646; right: 12px; top: 12px; width: 330px; max-height: calc(100vh - 24px); overflow: auto; border: 1px solid #ffffff26; border-radius: 14px; background: #171820f2; color: #f5f6fb; font: 13px/1.4 system-ui,sans-serif; box-shadow: 0 18px 60px #0008; backdrop-filter: blur(12px); pointer-events:auto; }
+  .panel { --panel-opacity: .95; position: fixed; z-index: 2147483646; right: 12px; top: 12px; width: 330px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow: auto; border: 1px solid #ffffff26; border-radius: 14px; background: rgb(23 24 32 / var(--panel-opacity)); color: #f5f6fb; font: 13px/1.4 system-ui,sans-serif; box-shadow: 0 18px 60px #0008; backdrop-filter: blur(12px); pointer-events:auto; }
   .panel[hidden], .compare[hidden], .guide[hidden], .resize[hidden] { display: none; }
-  .head { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid #ffffff1c; position:sticky; top:0; background:#171820; z-index:2; }
+  .head { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid #ffffff1c; position:sticky; top:0; background:rgb(23 24 32 / var(--panel-opacity)); z-index:2; cursor:grab; touch-action:none; user-select:none; }
+  .head:active { cursor:grabbing; } .head button { cursor:pointer; }
   .head strong { font-size:14px; } .head small { color:#b6b8c6; }
   .body { padding: 12px; display:grid; gap:10px; }
   .row { display:flex; gap:7px; align-items:center; flex-wrap:wrap; }
@@ -56,6 +64,10 @@ const styles = `
   .handoff .primary { width:100%; padding:9px 12px; background:#6d5dfc; border-color:#8d82ff; font-weight:650; }
   .handoff .primary:hover { background:#7a6cfe; } .handoff .primary:disabled { background:#282a36; }
   .handoff-status { margin:0; color:#b9f3d9; font-size:12px; } .handoff-summary { color:#b6b8c6; font-size:11px; }
+  details { border-top:1px solid #ffffff1c; padding-top:8px; } details summary { cursor:pointer; color:#f5f6fb; font-weight:650; padding:3px 0; }
+  details .section-body { display:grid; gap:10px; padding-top:9px; }
+  input[type="range"] { width:100%; padding:0; accent-color:#6d5dfc; }
+  .range-value { color:#f5f6fb; font-variant-numeric:tabular-nums; }
   .hover, .selection { position:fixed; z-index:2147483644; pointer-events:none; border:2px solid #6d5dfc; border-radius:3px; }
   .hover { border-style:dashed; border-color:#45d7b0; }
   .selection::after { content:attr(data-label); position:absolute; left:-2px; top:-20px; padding:2px 5px; color:white; background:#6d5dfc; border-radius:3px 3px 0 0; font:10px/1.4 system-ui,sans-serif; white-space:nowrap; }
@@ -103,13 +115,17 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const existing = document.querySelector<HTMLElement>(`[${HOST_ATTRIBUTE}]`);
   if (existing) throw new Error("codex-visual-instructions is already installed on this page");
 
-  let localPreferences = {};
-  try { localPreferences = JSON.parse(localStorage.getItem("codex-visual-instructions:preferences") ?? "{}"); } catch { /* ignored */ }
+  let localPreferences: Parameters<typeof mergeConfig>[0] & UiPreferences = {};
+  try { localPreferences = JSON.parse(localStorage.getItem(PREFERENCES_KEY) ?? "{}"); } catch { /* ignored */ }
   const config = mergeConfig(localPreferences, options.config ?? {});
   let locale = resolveLocale(config.locale);
   let messages = getMessages(locale);
   let active = false;
-  let compareMode: CompareMode = config.review.defaultCompareMode;
+  let compareMode: CompareMode = localPreferences.compare?.mode ?? config.review.defaultCompareMode;
+  let compareOpacity = Math.min(1, Math.max(0, localPreferences.compare?.opacity ?? 0.5));
+  let panelOpacity = Math.min(1, Math.max(0.6, localPreferences.panel?.opacity ?? 0.95));
+  let panelPosition = localPreferences.panel?.x === undefined || localPreferences.panel?.y === undefined
+    ? null : { x: localPreferences.panel.x, y: localPreferences.panel.y };
   let preset: ViewportPreset = config.review.defaultViewport;
   let selected: HTMLElement[] = [];
   let hoverTarget: HTMLElement | null = null;
@@ -147,27 +163,34 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const shell = document.createElement("div");
   shell.innerHTML = `
     <button class="launcher" type="button" data-action="toggle"></button>
-    <section class="panel" aria-label="Visual instruction controls" hidden>
+    <section class="panel" data-i18n-aria="title" hidden>
       <header class="head"><div><strong data-i18n="title"></strong><br><small data-count></small></div><button type="button" data-action="toggle"></button></header>
       <div class="body">
         <div class="row"><button data-action="undo" data-i18n="undo"></button><button data-action="redo" data-i18n="redo"></button><button data-action="clear-selection" data-i18n="clear"></button></div>
         <div class="meta" data-meta></div>
         <div class="row"><button data-action="hide" data-i18n="hide"></button><button class="danger" data-action="remove" data-i18n="remove"></button><button data-action="align" data-i18n="alignLeft"></button><button data-action="spacing" data-i18n="equalSpacing"></button></div>
         <label><span data-i18n="editText"></span><div class="row"><input data-text-input type="text" autocomplete="off"><button data-action="text" data-i18n="applyText"></button></div><small class="hint" data-text-warning></small></label>
-        <label><span data-i18n="intent"></span><select data-intent><option value="spacing">Spacing</option><option value="alignment">Alignment</option><option value="visual-hierarchy">Visual hierarchy</option><option value="responsive">Responsive</option><option value="copy">Copy</option><option value="visibility">Visibility</option><option value="interaction">Interaction</option><option value="exact-position">Exact position</option><option value="other" selected>Other</option></select></label>
+        <label><span data-i18n="intent"></span><select data-intent><option value="spacing" data-i18n="spacingOption"></option><option value="alignment" data-i18n="alignmentOption"></option><option value="visual-hierarchy" data-i18n="visualHierarchyOption"></option><option value="responsive" data-i18n="responsiveOption"></option><option value="copy" data-i18n="copyOption"></option><option value="visibility" data-i18n="visibilityOption"></option><option value="interaction" data-i18n="interactionOption"></option><option value="exact-position" data-i18n="exactPositionOption"></option><option value="other" data-i18n="otherOption" selected></option></select></label>
         <label><span data-i18n="comment"></span><textarea data-comment maxlength="1000"></textarea></label>
-        <div class="row"><label><span data-i18n="precision"></span><select data-precision><option value="exact">Exact</option><option value="approximate" selected>Approximate</option><option value="relationship">Relationship</option><option value="intent-only">Intent only</option></select></label><label><span data-i18n="scope"></span><select data-scope><option value="current-viewport">Current viewport</option><option value="current-breakpoint">Current breakpoint</option><option value="all-narrower">All narrower</option><option value="all-wider">All wider</option><option value="all-viewports">All viewports</option></select></label></div>
-        <div class="row"><label><span data-i18n="compare"></span><select data-compare><option value="edited">Edited</option><option value="original">Original</option><option value="side-by-side">Side by side</option><option value="overlay">Overlay</option></select></label><label><span data-i18n="viewport"></span><select data-viewport><option value="desktop">Desktop</option><option value="tablet">Tablet</option><option value="mobile">Mobile</option><option value="custom">Custom</option></select></label></div>
+        <div class="row"><label><span data-i18n="precision"></span><select data-precision><option value="exact" data-i18n="exactOption"></option><option value="approximate" data-i18n="approximateOption" selected></option><option value="relationship" data-i18n="relationshipOption"></option><option value="intent-only" data-i18n="intentOnlyOption"></option></select></label><label><span data-i18n="scope"></span><select data-scope><option value="current-viewport" data-i18n="currentViewportOption"></option><option value="current-breakpoint" data-i18n="currentBreakpointOption"></option><option value="all-narrower" data-i18n="allNarrowerOption"></option><option value="all-wider" data-i18n="allWiderOption"></option><option value="all-viewports" data-i18n="allViewportsOption"></option></select></label></div>
         <div class="handoff"><div class="handoff-summary" data-handoff-summary></div><p class="handoff-status" data-handoff-status hidden></p><button class="primary" type="button" data-action="handoff"></button></div>
-        <div class="row"><label>Language<select data-locale><option value="auto">Auto</option><option value="en">English</option><option value="ja">日本語</option><option value="fr">Français</option><option value="ru">Русский</option></select></label></div>
-        <label>Toggle shortcut<div class="row"><input data-shortcut-input><button data-action="save-shortcut">Save</button></div><small class="hint" data-shortcut-warning></small></label>
-        <p class="hint">Alt+Shift+Arrow: DOM traversal · Arrow: 1px · Shift+Arrow: 10px · Esc: clear/cancel</p>
+        <details data-section="view"><summary data-i18n="view"></summary><div class="section-body">
+          <div class="row"><label><span data-i18n="compare"></span><select data-compare><option value="edited" data-i18n="editedOption"></option><option value="original" data-i18n="originalOption"></option><option value="side-by-side" data-i18n="sideBySideOption"></option><option value="overlay" data-i18n="overlayOption"></option></select></label><label><span data-i18n="viewport"></span><select data-viewport><option value="desktop" data-i18n="desktopOption"></option><option value="tablet" data-i18n="tabletOption"></option><option value="mobile" data-i18n="mobileOption"></option><option value="custom" data-i18n="customOption"></option></select></label></div>
+          <label><span><span data-i18n="overlayOpacity"></span>: <output class="range-value" data-compare-opacity-value></output></span><input data-compare-opacity type="range" min="0" max="100" step="1" data-i18n-aria="overlayOpacity"></label>
+        </div></details>
+        <details data-section="preferences"><summary data-i18n="preferences"></summary><div class="section-body">
+          <div class="row"><label><span data-i18n="language"></span><select data-locale><option value="auto" data-i18n="autoOption"></option><option value="en">English</option><option value="ja">日本語</option><option value="fr">Français</option><option value="ru">Русский</option></select></label></div>
+          <label><span><span data-i18n="panelOpacity"></span>: <output class="range-value" data-panel-opacity-value></output></span><input data-panel-opacity type="range" min="60" max="100" step="1" data-i18n-aria="panelOpacity"></label>
+          <label><span data-i18n="toggleShortcut"></span><div class="row"><input data-shortcut-input><button data-action="save-shortcut" data-i18n="save"></button></div><small class="hint" data-shortcut-warning></small></label>
+          <button type="button" data-action="reset-panel" data-i18n="resetPanelPosition"></button>
+          <p class="hint" data-i18n="shortcutHint"></p>
+        </div></details>
       </div>
     </section>
-    <div class="hover" hidden></div><div data-selections></div><div class="resize" role="slider" aria-label="Resize selected element" hidden></div>
-    <iframe class="compare" title="Original visual snapshot" sandbox="allow-same-origin" hidden></iframe>
+    <div class="hover" hidden></div><div data-selections></div><div class="resize" role="slider" data-i18n-aria="resizeLabel" hidden></div>
+    <iframe class="compare" data-i18n-title="originalSnapshotTitle" sandbox="allow-same-origin" hidden></iframe>
     <div class="guide" hidden></div>
-    <dialog><p data-warning></p><div class="row"><button data-action="cancel-remove">Cancel</button><button class="danger" data-action="confirm-remove">Remove preview</button></div></dialog>
+    <dialog><p data-warning></p><div class="row"><button data-action="cancel-remove" data-i18n="cancel"></button><button class="danger" data-action="confirm-remove" data-i18n="removePreview"></button></div></dialog>
   `;
   shadow.append(shell);
   document.documentElement.append(host);
@@ -187,9 +210,15 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const textButton = shadow.querySelector<HTMLButtonElement>("[data-action=text]")!;
   const textWarning = $("[data-text-warning]") as HTMLElement;
   const handoffButton = shadow.querySelector<HTMLButtonElement>("[data-action=handoff]")!;
+  const viewSection = $("[data-section=view]") as HTMLDetailsElement;
+  const preferencesSection = $("[data-section=preferences]") as HTMLDetailsElement;
+  const panelOpacityInput = $("[data-panel-opacity]") as HTMLInputElement;
+  const compareOpacityInput = $("[data-compare-opacity]") as HTMLInputElement;
 
   compareFrame.srcdoc = originalSnapshot;
   shortcutInput.value = config.shortcuts["review.toggle"] ?? "Alt+Shift+R";
+  viewSection.open = localPreferences.sections?.viewOpen ?? false;
+  preferencesSection.open = localPreferences.sections?.preferencesOpen ?? false;
 
   const persist = (): void => { session.viewport = viewportInfo(preset); refreshSessionSummary(session); storage.save(session); render(); };
   const persistSpecificationChange = (): void => { markSessionDraft(session); persist(); };
@@ -204,8 +233,11 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   };
   const saveLocalPreference = (patch: Record<string, unknown>): void => {
     try {
-      const current = JSON.parse(localStorage.getItem("codex-visual-instructions:preferences") ?? "{}");
-      localStorage.setItem("codex-visual-instructions:preferences", JSON.stringify({ ...current, ...patch }));
+      const current = JSON.parse(localStorage.getItem(PREFERENCES_KEY) ?? "{}");
+      for (const key of ["panel", "compare", "sections", "review", "shortcuts"]) {
+        if (typeof patch[key] === "object" && patch[key] !== null) patch[key] = { ...(current[key] ?? {}), ...(patch[key] as object) };
+      }
+      localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ ...current, ...patch }));
     } catch { /* storage may be disabled */ }
   };
 
@@ -214,9 +246,37 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
       const key = element.dataset.i18n as keyof Messages;
       element.textContent = messages[key];
     });
+    shadow.querySelectorAll<HTMLElement>("[data-i18n-aria]").forEach((element) => {
+      element.setAttribute("aria-label", messages[element.dataset.i18nAria as keyof Messages]);
+    });
+    shadow.querySelectorAll<HTMLElement>("[data-i18n-title]").forEach((element) => {
+      element.setAttribute("title", messages[element.dataset.i18nTitle as keyof Messages]);
+    });
     launcher.textContent = active ? messages.stop : messages.start;
     shadow.querySelectorAll<HTMLButtonElement>("[data-action=toggle]").forEach((button) => { button.textContent = active ? messages.stop : messages.start; });
     $("[data-warning]").textContent = messages.removeWarning;
+  };
+
+  const clampPanelPosition = (position: { x: number; y: number }): { x: number; y: number } => {
+    const rect = panel.getBoundingClientRect();
+    const maxX = Math.max(PANEL_MARGIN, window.innerWidth - rect.width - PANEL_MARGIN);
+    const maxY = Math.max(PANEL_MARGIN, window.innerHeight - Math.min(rect.height, window.innerHeight - PANEL_MARGIN * 2) - PANEL_MARGIN);
+    return { x: Math.min(maxX, Math.max(PANEL_MARGIN, position.x)), y: Math.min(maxY, Math.max(PANEL_MARGIN, position.y)) };
+  };
+  const applyPanelPosition = (): void => {
+    panel.style.setProperty("--panel-opacity", String(panelOpacity));
+    if (!panelPosition || panel.hidden) return;
+    panelPosition = clampPanelPosition(panelPosition);
+    panel.style.left = `${panelPosition.x}px`;
+    panel.style.top = `${panelPosition.y}px`;
+    panel.style.right = "auto";
+  };
+  const resetPanelPosition = (): void => {
+    panelPosition = null;
+    panel.style.left = "auto";
+    panel.style.top = `${PANEL_MARGIN}px`;
+    panel.style.right = `${PANEL_MARGIN}px`;
+    saveLocalPreference({ panel: { x: undefined, y: undefined, opacity: panelOpacity } });
   };
 
   const updateBoxes = (): void => {
@@ -247,9 +307,23 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     renderTranslations();
     panel.hidden = !active;
     launcher.hidden = active;
+    applyPanelPosition();
+    panelOpacityInput.value = String(Math.round(panelOpacity * 100));
+    compareOpacityInput.value = String(Math.round(compareOpacity * 100));
+    $("[data-panel-opacity-value]").textContent = `${panelOpacityInput.value}%`;
+    $("[data-compare-opacity-value]").textContent = `${compareOpacityInput.value}%`;
+    compareOpacityInput.disabled = compareMode !== "overlay";
+    if (preset !== "desktop") {
+      const widths: Record<ViewportPreset, number> = { desktop: window.innerWidth, tablet: 768, mobile: 390, custom: Math.max(320, Math.round(window.innerWidth * 0.72)) };
+      guide.dataset.label = `${messages[`${preset}Option` as keyof Messages]} · ${widths[preset]}px (${messages.layoutGuide})`;
+    }
     $("[data-count]").textContent = `${session.annotations.length} ${messages.sessionCount}`;
-    const operationSummary = Object.entries(session.summary.byOperation).map(([type, count]) => `${type}: ${count}`).join(" · ");
-    $("[data-handoff-summary]").textContent = `pending: ${session.summary.pending} · resolved: ${session.summary.resolved}${operationSummary ? ` · ${operationSummary}` : ""}`;
+    const operationLabels: Record<string, keyof Messages> = {
+      move: "operationMove", resize: "operationResize", "replace-text": "operationReplaceText",
+      hide: "operationHide", remove: "operationRemove", align: "operationAlign", "equal-spacing": "operationEqualSpacing",
+    };
+    const operationSummary = Object.entries(session.summary.byOperation).map(([type, count]) => `${messages[operationLabels[type] ?? "otherOption"]}: ${count}`).join(" · ");
+    $("[data-handoff-summary]").textContent = `${messages.pending}: ${session.summary.pending} · ${messages.resolved}: ${session.summary.resolved}${operationSummary ? ` · ${operationSummary}` : ""}`;
     const handoffStatus = $("[data-handoff-status]") as HTMLElement;
     handoffStatus.hidden = session.status !== "ready";
     const allResolved = session.summary.total > 0 && session.summary.pending === 0;
@@ -266,13 +340,13 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
       meta.append(heading, document.createElement("br"), code);
       const summary = safeTextSummary(primary);
       if (summary) meta.append(document.createElement("br"), document.createTextNode(summary));
-      if (primary instanceof HTMLAnchorElement) meta.append(document.createElement("br"), document.createTextNode(`Target: ${primary.getAttribute("href") ?? ""}`));
+      if (primary instanceof HTMLAnchorElement) meta.append(document.createElement("br"), document.createTextNode(`${messages.target}: ${primary.getAttribute("href") ?? ""}`));
     } else meta.textContent = messages.noSelection;
     const editableText = primary ? editableDirectText(primary) : null;
     textInput.value = editableText?.data ?? "";
     textInput.disabled = !editableText;
     textButton.disabled = !editableText;
-    textWarning.textContent = primary && !editableText ? "Text editing is available only for one unambiguous direct text node." : "";
+    textWarning.textContent = primary && !editableText ? messages.textWarning : "";
     shadow.querySelector<HTMLButtonElement>("[data-action=undo]")!.disabled = !history.canUndo;
     shadow.querySelector<HTMLButtonElement>("[data-action=redo]")!.disabled = !history.canRedo;
     shadow.querySelector<HTMLButtonElement>("[data-action=align]")!.disabled = selected.length < 2;
@@ -468,19 +542,46 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   function start(): void { if (active) return; active = true; originalOpen = window.open; attachReviewListeners(); render(); }
   function stop(): void { cancelDragPreview(); cancelResizePreview(); if (!active) return; active = false; detachReviewListeners(); hoverTarget = null; render(); }
 
-  const setCompare = (mode: CompareMode): void => {
+  const panelHeader = $(".head") as HTMLElement;
+  let panelDrag: { pointerId: number; offsetX: number; offsetY: number } | null = null;
+  panelHeader.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || (event.target as Element).closest("button,input,select,textarea,a,summary")) return;
+    const rect = panel.getBoundingClientRect();
+    panelPosition = { x: rect.left, y: rect.top };
+    panelDrag = { pointerId: event.pointerId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top };
+    panelHeader.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  panelHeader.addEventListener("pointermove", (event) => {
+    if (!panelDrag || event.pointerId !== panelDrag.pointerId) return;
+    panelPosition = clampPanelPosition({ x: event.clientX - panelDrag.offsetX, y: event.clientY - panelDrag.offsetY });
+    applyPanelPosition();
+  });
+  const finishPanelDrag = (event: PointerEvent): void => {
+    if (!panelDrag || event.pointerId !== panelDrag.pointerId) return;
+    panelDrag = null;
+    if (panelPosition) saveLocalPreference({ panel: { ...panelPosition, opacity: panelOpacity } });
+  };
+  panelHeader.addEventListener("pointerup", finishPanelDrag);
+  panelHeader.addEventListener("pointercancel", finishPanelDrag);
+
+  const setCompare = (mode: CompareMode, save = true): void => {
     compareMode = mode;
     compareFrame.hidden = mode === "edited";
     compareFrame.className = `compare ${mode}`;
+    compareFrame.style.opacity = mode === "overlay" ? String(compareOpacity) : "";
     (shadow.querySelector("[data-compare]") as HTMLSelectElement).value = mode;
+    if (save) saveLocalPreference({ compare: { mode, opacity: compareOpacity }, review: { defaultCompareMode: mode } });
     attachScrollSync();
+    render();
   };
   const setViewport = (value: ViewportPreset): void => {
     preset = value;
     const widths: Record<ViewportPreset, number> = { desktop: window.innerWidth, tablet: 768, mobile: 390, custom: Math.max(320, Math.round(window.innerWidth * 0.72)) };
     guide.style.width = `${Math.min(widths[value], window.innerWidth)}px`;
-    guide.dataset.label = `${value} · ${widths[value]}px (layout guide)`;
+    guide.dataset.label = `${messages[`${value}Option` as keyof Messages]} · ${widths[value]}px (${messages.layoutGuide})`;
     guide.hidden = value === "desktop";
+    saveLocalPreference({ review: { defaultViewport: value } });
     persistSpecificationChange();
   };
 
@@ -566,6 +667,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     else if (action === "align") alignLeft();
     else if (action === "spacing") equalSpacing();
     else if (action === "handoff") toggleHandoff();
+    else if (action === "reset-panel") resetPanelPosition();
     else if (action === "save-shortcut") {
       config.shortcuts["review.toggle"] = shortcutInput.value;
       const conflicts = findShortcutConflicts(config.shortcuts);
@@ -583,10 +685,25 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   shadow.querySelector<HTMLSelectElement>("[data-locale]")!.value = config.locale;
   shadow.querySelector<HTMLSelectElement>("[data-locale]")!.addEventListener("change", (event) => {
     const value = (event.target as HTMLSelectElement).value as typeof config.locale;
+    config.locale = value;
     locale = resolveLocale(value); messages = getMessages(locale);
     saveLocalPreference({ locale: value });
     render();
   });
+  panelOpacityInput.addEventListener("input", () => {
+    panelOpacity = Number(panelOpacityInput.value) / 100;
+    panel.style.setProperty("--panel-opacity", String(panelOpacity));
+    $("[data-panel-opacity-value]").textContent = `${panelOpacityInput.value}%`;
+    saveLocalPreference({ panel: { ...(panelPosition ?? {}), opacity: panelOpacity } });
+  });
+  compareOpacityInput.addEventListener("input", () => {
+    compareOpacity = Number(compareOpacityInput.value) / 100;
+    compareFrame.style.opacity = compareMode === "overlay" ? String(compareOpacity) : "";
+    $("[data-compare-opacity-value]").textContent = `${compareOpacityInput.value}%`;
+    saveLocalPreference({ compare: { mode: compareMode, opacity: compareOpacity } });
+  });
+  viewSection.addEventListener("toggle", () => saveLocalPreference({ sections: { viewOpen: viewSection.open } }));
+  preferencesSection.addEventListener("toggle", () => saveLocalPreference({ sections: { preferencesOpen: preferencesSection.open } }));
   let scrollSyncHandler: (() => void) | null = null;
   function detachScrollSync(): void {
     if (scrollSyncHandler) window.removeEventListener("scroll", scrollSyncHandler);
@@ -607,7 +724,11 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const onCompareLoad = (): void => { attachScrollSync(); };
   compareFrame.addEventListener("load", onCompareLoad);
   window.addEventListener("scroll", updateBoxes, { passive: true });
-  window.addEventListener("resize", updateBoxes, { passive: true });
+  const onWindowResize = (): void => {
+    applyPanelPosition(); updateBoxes();
+    window.requestAnimationFrame(() => { if (!destroyed) applyPanelPosition(); });
+  };
+  window.addEventListener("resize", onWindowResize, { passive: true });
   document.addEventListener("keydown", onKeyDown, true);
 
   let destroyed = false;
@@ -628,10 +749,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     compareFrame.removeEventListener("load", onCompareLoad);
     document.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("scroll", updateBoxes);
-    window.removeEventListener("resize", updateBoxes);
+    window.removeEventListener("resize", onWindowResize);
     host.remove();
   }
-  setCompare(compareMode);
+  setCompare(compareMode, false);
   if (options.startActive) start(); else render();
 
   return {

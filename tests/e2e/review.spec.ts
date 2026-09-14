@@ -72,6 +72,94 @@ test("supports multi-select, hide, compare and locale controls", async ({ page }
   await expect.poll(() => page.locator("[data-codex-visual-instructions]").evaluate((host: any) => !host.shadowRoot.querySelector("iframe").hidden)).toBe(true);
 });
 
+test("moves, clamps, persists, and resets the panel without dragging controls", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const panel = page.locator("[data-codex-visual-instructions] .panel");
+  const header = page.locator("[data-codex-visual-instructions] .head");
+  const before = await panel.boundingBox();
+  const headerBox = await header.boundingBox();
+  expect(before).not.toBeNull(); expect(headerBox).not.toBeNull();
+  await page.mouse.move(headerBox!.x + 30, headerBox!.y + 15);
+  await page.mouse.down(); await page.mouse.move(80, 100); await page.mouse.up();
+  const moved = await panel.boundingBox();
+  expect(moved!.x).toBeGreaterThanOrEqual(12); expect(moved!.y).toBeGreaterThanOrEqual(12);
+  expect(moved!.x).not.toBeCloseTo(before!.x, 0);
+
+  const afterHeaderDrag = { x: moved!.x, y: moved!.y };
+  await page.locator("[data-codex-visual-instructions]").evaluate((host: any) => {
+    const button = host.shadowRoot.querySelector(".head button");
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 8, clientX: 20, clientY: 20 }));
+    host.shadowRoot.querySelector(".head").dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 8, clientX: 200, clientY: 200 }));
+  });
+  const afterControl = await panel.boundingBox();
+  expect(afterControl!.x).toBeCloseTo(afterHeaderDrag.x, 0); expect(afterControl!.y).toBeCloseTo(afterHeaderDrag.y, 0);
+
+  await page.evaluate(async () => {
+    (window as any).visualReview.destroy();
+    const modulePath = "/dist/index.js";
+    const { install } = await import(modulePath);
+    (window as any).visualReview = install({ startActive: true });
+  });
+  const restored = await panel.boundingBox();
+  expect(restored!.x).toBeCloseTo(afterHeaderDrag.x, 0); expect(restored!.y).toBeCloseTo(afterHeaderDrag.y, 0);
+  await page.setViewportSize({ width: 360, height: 500 });
+  await expect.poll(async () => {
+    const box = await panel.boundingBox();
+    return box!.x + box!.width;
+  }).toBeLessThanOrEqual(348.5);
+  const clamped = await panel.boundingBox();
+  expect(clamped!.x).toBeGreaterThanOrEqual(12);
+  await page.locator("[data-codex-visual-instructions]").evaluate((host: any) => host.shadowRoot.querySelector('[data-action="reset-panel"]').click());
+  const reset = await panel.boundingBox();
+  expect(reset!.x + reset!.width).toBeCloseTo(348, 0); expect(reset!.y).toBeCloseTo(12, 0);
+});
+
+test("keeps UI preferences separate from a ready review session", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  await page.getByTestId("hero-title").click({ position: { x: 10, y: 10 } });
+  await page.keyboard.press("ArrowRight");
+  await page.evaluate(() => (window as any).visualReview.confirm());
+  const confirmedAt = await page.evaluate(() => (window as any).visualReview.session.confirmedAt);
+  const header = await page.locator("[data-codex-visual-instructions] .head").boundingBox();
+  await page.mouse.move(header!.x + 25, header!.y + 15); await page.mouse.down(); await page.mouse.move(100, 110); await page.mouse.up();
+  await page.locator("[data-codex-visual-instructions]").evaluate((host: any) => {
+    const root = host.shadowRoot;
+    root.querySelector('[data-section="view"]').open = true;
+    root.querySelector('[data-section="preferences"]').open = true;
+    const panelOpacity = root.querySelector("[data-panel-opacity]"); panelOpacity.value = "72"; panelOpacity.dispatchEvent(new Event("input"));
+    const compare = root.querySelector("[data-compare]"); compare.value = "overlay"; compare.dispatchEvent(new Event("change"));
+    const compareOpacity = root.querySelector("[data-compare-opacity]"); compareOpacity.value = "35"; compareOpacity.dispatchEvent(new Event("input"));
+    const locale = root.querySelector("[data-locale]"); locale.value = "ja"; locale.dispatchEvent(new Event("change"));
+  });
+  expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+  expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBe(confirmedAt);
+  const ui = await page.locator("[data-codex-visual-instructions]").evaluate((host: any) => ({
+    panelOpacity: host.shadowRoot.querySelector(".panel").style.getPropertyValue("--panel-opacity"),
+    frameOpacity: host.shadowRoot.querySelector("iframe").style.opacity,
+    panelCssOpacity: getComputedStyle(host.shadowRoot.querySelector(".panel")).opacity,
+    view: host.shadowRoot.querySelector('[data-section="view"] summary').textContent,
+    option: host.shadowRoot.querySelector('[data-intent] option[value="spacing"]').textContent,
+    dialogCancel: host.shadowRoot.querySelector('[data-action="cancel-remove"]').textContent,
+  }));
+  expect(ui).toEqual({ panelOpacity: "0.72", frameOpacity: "0.35", panelCssOpacity: "1", view: "表示", option: "余白", dialogCancel: "キャンセル" });
+  const preferences = await page.evaluate(() => JSON.parse(localStorage.getItem("codex-visual-instructions:preferences") ?? "{}"));
+  expect(preferences.panel.opacity).toBe(0.72); expect(preferences.compare.opacity).toBe(0.35);
+  await page.evaluate(async () => {
+    (window as any).visualReview.destroy();
+    const modulePath = "/dist/index.js";
+    const { install } = await import(modulePath);
+    (window as any).visualReview = install({ startActive: true });
+  });
+  const restored = await page.locator("[data-codex-visual-instructions]").evaluate((host: any) => ({
+    panelOpacity: host.shadowRoot.querySelector("[data-panel-opacity]").value,
+    compareOpacity: host.shadowRoot.querySelector("[data-compare-opacity]").value,
+    compareMode: host.shadowRoot.querySelector("[data-compare]").value,
+    viewOpen: host.shadowRoot.querySelector('[data-section="view"]').open,
+    preferencesOpen: host.shadowRoot.querySelector('[data-section="preferences"]').open,
+  }));
+  expect(restored).toEqual({ panelOpacity: "72", compareOpacity: "35", compareMode: "overlay", viewOpen: true, preferencesOpen: true });
+});
+
 test("records mouse drag and resize as visual deltas", async ({ page }) => {
   await page.evaluate(() => (window as any).visualReview.start());
   const target = page.locator("#intro");
