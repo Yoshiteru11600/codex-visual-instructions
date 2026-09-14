@@ -61,16 +61,21 @@ describe("session serialization", () => {
     expect(handle.session.summary.total).toBe(handle.session.summary.pending + handle.session.summary.resolved);
     handle.destroy();
   });
-  it("does not confirm an all-resolved session and disables the handoff button", () => {
+  it("keeps a confirmed all-resolved session ready and shows completion", () => {
     const handle = install();
-    handle.session.annotations.push(instruction("resolved-1", true), instruction("resolved-2", true), instruction("resolved-3", true));
+    handle.session.annotations.push(instruction("resolved-1"), instruction("resolved-2"), instruction("resolved-3"));
+    expect(handle.confirm()).toBe(true);
+    const confirmedAt = handle.session.confirmedAt;
+    handle.session.annotations.forEach((item) => { item.resolved = true; });
     expect(handle.confirm()).toBe(false);
-    expect(handle.session.status).toBe("draft");
-    expect(handle.session.confirmedAt).toBeUndefined();
+    expect(handle.session.status).toBe("ready");
+    expect(handle.session.confirmedAt).toBe(confirmedAt);
     expect(handle.session.summary).toMatchObject({ total: 3, pending: 0, resolved: 3 });
     handle.start();
-    const button = document.querySelector<HTMLElement>("[data-codex-visual-instructions]")!.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="handoff"]')!;
+    const shadow = document.querySelector<HTMLElement>("[data-codex-visual-instructions]")!.shadowRoot!;
+    const button = shadow.querySelector<HTMLButtonElement>('[data-action="handoff"]')!;
     expect(button.disabled).toBe(true);
+    expect(shadow.querySelector("[data-handoff-status]")?.textContent).toBe("✓ All instructions resolved");
     handle.destroy();
   });
   it("keeps clear storage empty instead of immediately saving an empty session", () => {

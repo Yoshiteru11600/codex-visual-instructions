@@ -23,5 +23,6 @@ export const en = {
   requestChanges: "Confirm instructions for Codex",
   editInstructions: "Unconfirm and edit",
   handoffReady: "✓ Instructions confirmed. Ask Codex to implement them.",
+  allResolved: "✓ All instructions resolved",
   removeWarning: "This element may be referenced by JavaScript, event handlers, ARIA relationships, forms, or framework state. The preview does not guarantee runtime behavior after removal. Codex must inspect source dependencies before implementing this change.",
 } as const;

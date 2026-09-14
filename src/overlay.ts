@@ -252,7 +252,8 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     $("[data-handoff-summary]").textContent = `pending: ${session.summary.pending} · resolved: ${session.summary.resolved}${operationSummary ? ` · ${operationSummary}` : ""}`;
     const handoffStatus = $("[data-handoff-status]") as HTMLElement;
     handoffStatus.hidden = session.status !== "ready";
-    handoffStatus.textContent = session.status === "ready" ? messages.handoffReady : "";
+    const allResolved = session.summary.total > 0 && session.summary.pending === 0;
+    handoffStatus.textContent = session.status === "ready" ? (allResolved ? messages.allResolved : messages.handoffReady) : "";
     handoffButton.textContent = session.status === "ready" ? messages.editInstructions : messages.requestChanges;
     handoffButton.disabled = !hasPendingInstructions(session);
     const primary = selected.at(-1);

@@ -24,5 +24,6 @@ export const ja: Record<keyof typeof en, string> = {
   requestChanges: "Codexに渡す指示を確定",
   editInstructions: "確定を解除して編集",
   handoffReady: "✓ 指示を確定しました。Codexに実装を依頼してください",
+  allResolved: "✓ すべての指示を解決しました",
   removeWarning: "この要素は JavaScript、イベントハンドラ、ARIA 関係、フォーム、フレームワーク状態から参照されている可能性があります。プレビューは削除後の実行時動作を保証しません。Codex は実装前にソース依存関係を調査する必要があります。",
 };
