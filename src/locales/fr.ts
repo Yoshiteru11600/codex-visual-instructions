@@ -1,6 +1,9 @@
 import type { en } from "./en";
 export const fr: Record<keyof typeof en, string> = {
   title: "Instructions visuelles", start: "Démarrer la revue", stop: "Arrêter la revue",
+  minimize: "Réduire", resume: "Reprendre la revue", endReview: "Terminer la revue",
+  back: "Retour", confirmInstructions: "Confirmer les instructions", discardAndEnd: "Abandonner et terminer",
+  unconfirmedInstructions: "Vous avez {count} instructions non confirmées.",
   noSelection: "Sélectionnez un élément de la page", selected: "Élément sélectionné",
   clear: "Effacer la sélection", undo: "Annuler", redo: "Rétablir", hide: "Masquer",
   remove: "Supprimer", editText: "Remplacer le texte", applyText: "Appliquer le texte",

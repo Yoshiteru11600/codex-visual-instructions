@@ -1,6 +1,9 @@
 import type { en } from "./en";
 export const ru: Record<keyof typeof en, string> = {
   title: "Визуальные инструкции", start: "Начать проверку", stop: "Остановить проверку",
+  minimize: "Свернуть", resume: "Продолжить проверку", endReview: "Завершить проверку",
+  back: "Назад", confirmInstructions: "Подтвердить инструкции", discardAndEnd: "Отменить и завершить",
+  unconfirmedInstructions: "Есть неподтверждённые инструкции: {count}.",
   noSelection: "Выберите элемент на странице", selected: "Выбранный элемент", clear: "Очистить выбор",
   undo: "Отменить", redo: "Повторить", hide: "Скрыть", remove: "Удалить",
   editText: "Заменить текст", applyText: "Применить текст", comment: "Комментарий",

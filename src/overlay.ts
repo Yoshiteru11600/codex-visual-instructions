@@ -69,14 +69,16 @@ const styles = `
   .field-tooltip { position:absolute; z-index:5; left:calc(100% - 14px); bottom:calc(100% - 4px); width:230px; padding:8px 9px; border:1px solid var(--vi-border); border-radius:var(--vi-control-radius); background:rgb(var(--vi-bg)); color:var(--vi-fg); box-shadow:var(--vi-shadow); font-size:11px; font-weight:400; line-height:1.4; pointer-events:none; opacity:0; visibility:hidden; transform:translateY(5px) scale(.98); transform-origin:bottom left; transition:opacity .16s ease,transform .16s ease,visibility 0s linear .16s; }
   .field-tooltip.is-visible { opacity:1; visibility:visible; transform:translateY(0) scale(1); transition-delay:0s; }
   .row > label:last-child .field-tooltip { right:-4px; left:auto; transform-origin:bottom right; }
-  .meta { padding:9px; border-radius:var(--vi-control-radius); background:var(--vi-surface); color:var(--vi-fg); overflow-wrap:anywhere; }
-  .meta code { color:var(--vi-success); } .hint { color:var(--vi-muted); font-size:11px; }
+  .meta { padding:4px 2px 4px 10px; border-left:3px solid var(--vi-accent); color:var(--vi-fg); overflow-wrap:anywhere; }
+  .meta strong { display:inline-block; margin-bottom:2px; color:var(--vi-muted); font-size:11px; font-weight:600; }
+  .meta code { color:var(--vi-success); font-weight:650; } .hint { color:var(--vi-muted); font-size:11px; }
   .danger { border-color:var(--vi-danger-border); color:var(--vi-danger); }
   .active { background:var(--vi-accent); border-color:var(--vi-accent-border); }
   .handoff { padding:10px; border:1px solid var(--vi-border); border-radius:var(--vi-control-radius); background:var(--vi-group); display:grid; gap:7px; }
   .handoff .primary { width:100%; padding:9px 12px; background:var(--vi-accent); border-color:var(--vi-accent-border); color:#fff; font-weight:650; }
   .handoff .primary:hover { filter:brightness(1.08); } .handoff .primary:disabled { background:var(--vi-control); color:var(--vi-muted); }
   .handoff-status { margin:0; color:var(--vi-success); font-size:12px; } .handoff-summary { color:var(--vi-muted); font-size:11px; }
+  .end-review { width:100%; margin-top:2px; }
   details { border-top:1px solid var(--vi-border); padding-top:8px; } details summary { cursor:pointer; color:var(--vi-fg); font-weight:650; padding:3px 0; }
   details .section-body { display:grid; gap:10px; padding-top:9px; }
   input[type="range"] { width:100%; padding:0; accent-color:var(--vi-accent); }
@@ -140,7 +142,9 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   let locale = resolveLocale(config.locale);
   let messages = getMessages(locale);
   let active = false;
+  let reviewStarted = false;
   let compareMode: CompareMode = localPreferences.compare?.mode ?? config.review.defaultCompareMode;
+  let preferredCompareMode: CompareMode = compareMode;
   let compareOpacity = Math.min(1, Math.max(0, localPreferences.compare?.opacity ?? 0.5));
   let panelOpacity = Math.min(1, Math.max(0.6, localPreferences.panel?.opacity ?? 0.95));
   let panelPosition = localPreferences.panel?.x === undefined || localPreferences.panel?.y === undefined
@@ -151,6 +155,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   let theme: Theme = localPreferences.appearance?.theme ?? "system";
   let uiStyle: UiStyle = localPreferences.appearance?.style ?? "modern";
   let preset: ViewportPreset = config.review.defaultViewport;
+  let preferredViewport: ViewportPreset = preset;
   let selected: HTMLElement[] = [];
   let hoverTarget: HTMLElement | null = null;
   let intent: IntentCategory = "other";
@@ -212,6 +217,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
           <button type="button" data-action="reset-launcher" data-i18n="resetLauncherPosition"></button>
           <p class="hint" data-i18n="shortcutHint"></p>
         </div></details>
+        <button class="danger end-review" type="button" data-action="end-review" data-i18n="endReview"></button>
       </div>
     </section>
     <div class="hover" hidden></div><div data-selections></div><div class="resize" role="slider" data-i18n-aria="resizeLabel" hidden></div>
@@ -219,6 +225,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     <div class="side-compare" hidden><div class="compare-surface"><span class="side-label" data-i18n="editedSurface"></span><iframe data-side-edited sandbox="allow-same-origin"></iframe></div><div class="compare-surface"><span class="side-label" data-i18n="originalSurface"></span><iframe data-side-original sandbox="allow-same-origin"></iframe></div></div>
     <div class="guide" hidden></div>
     <dialog data-remove-dialog><p data-warning></p><div class="row"><button data-action="cancel-remove" data-i18n="cancel"></button><button class="danger" data-action="confirm-remove" data-i18n="removePreview"></button></div></dialog>
+    <dialog data-end-dialog aria-labelledby="visual-end-dialog-title"><h2 id="visual-end-dialog-title" data-i18n="endReview"></h2><p data-end-warning></p><div class="row"><button data-action="cancel-end" data-i18n="back"></button><button data-action="confirm-end" data-i18n="confirmInstructions"></button><button class="danger" data-action="discard-end" data-i18n="discardAndEnd"></button></div></dialog>
     <dialog data-help-dialog><div class="help-content"><h2 data-i18n="helpTitle"></h2><section><h3 data-i18n="helpFlowTitle"></h3><p data-i18n="helpFlow"></p></section><section><h3 data-i18n="helpEditingTitle"></h3><p data-i18n="helpEditing"></p></section><section><h3 data-i18n="helpKeyboardTitle"></h3><p data-i18n="helpKeyboard"></p></section><section><h3 data-i18n="helpCompareTitle"></h3><p data-i18n="helpCompare"></p></section><section><h3 data-i18n="helpPrecisionTitle"></h3><p data-i18n="helpPrecision"></p></section><section><h3 data-i18n="helpScopeTitle"></h3><p data-i18n="helpScope"></p></section><section><h3 data-i18n="helpHandoffTitle"></h3><p data-i18n="helpHandoff"></p></section></div><div class="row"><button data-action="close-help" data-i18n="closeHelp"></button></div></dialog>
   `;
   shadow.append(shell);
@@ -236,6 +243,9 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const originalSideFrame = $("[data-side-original]") as HTMLIFrameElement;
   const guide = $(".guide") as HTMLElement;
   const dialog = $("[data-remove-dialog]") as HTMLDialogElement;
+  const endDialog = $("[data-end-dialog]") as HTMLDialogElement;
+  const endReviewButton = $("[data-action=end-review]") as HTMLButtonElement;
+  const cancelEndButton = $("[data-action=cancel-end]") as HTMLButtonElement;
   const helpDialog = $("[data-help-dialog]") as HTMLDialogElement;
   const meta = $("[data-meta]") as HTMLElement;
   const textInput = $("[data-text-input]") as HTMLInputElement;
@@ -311,8 +321,8 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     shadow.querySelectorAll<HTMLElement>("[data-i18n-title]").forEach((element) => {
       element.setAttribute("title", messages[element.dataset.i18nTitle as keyof Messages]);
     });
-    launcher.textContent = active ? messages.stop : messages.start;
-    shadow.querySelectorAll<HTMLButtonElement>("[data-action=toggle]").forEach((button) => { button.textContent = active ? messages.stop : messages.start; });
+    launcher.textContent = active ? messages.minimize : (reviewStarted ? messages.resume : messages.start);
+    shadow.querySelectorAll<HTMLButtonElement>("[data-action=toggle]").forEach((button) => { button.textContent = active ? messages.minimize : (reviewStarted ? messages.resume : messages.start); });
     $("[data-warning]").textContent = messages.removeWarning;
   };
 
@@ -372,7 +382,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
       hoverBox.hidden = false;
     } else hoverBox.hidden = true;
     selectionLayer.replaceChildren();
-    selected.forEach((element, index) => {
+    if (active) selected.forEach((element, index) => {
       if (!element.isConnected) return;
       const rect = element.getBoundingClientRect();
       const box = document.createElement("div");
@@ -407,6 +417,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
       guide.dataset.label = `${messages[`${preset}Option` as keyof Messages]} · ${widths[preset]}px (${messages.layoutGuide})`;
     }
     $("[data-count]").textContent = `${session.annotations.length} ${messages.sessionCount}`;
+    $("[data-end-warning]").textContent = messages.unconfirmedInstructions.replace("{count}", String(session.summary.pending));
     const operationLabels: Record<string, keyof Messages> = {
       move: "operationMove", resize: "operationResize", "replace-text": "operationReplaceText",
       hide: "operationHide", remove: "operationRemove", align: "operationAlign", "equal-spacing": "operationEqualSpacing",
@@ -438,6 +449,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     textWarning.textContent = primary && !editableText ? messages.textWarning : "";
     shadow.querySelector<HTMLButtonElement>("[data-action=undo]")!.disabled = !history.canUndo;
     shadow.querySelector<HTMLButtonElement>("[data-action=redo]")!.disabled = !history.canRedo;
+    shadow.querySelector<HTMLButtonElement>("[data-action=clear-selection]")!.disabled = selected.length === 0;
     shadow.querySelector<HTMLButtonElement>("[data-action=align]")!.disabled = selected.length < 2;
     shadow.querySelector<HTMLButtonElement>("[data-action=spacing]")!.disabled = selected.length < 3;
     updateBoxes();
@@ -535,6 +547,13 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
 
   let drag: { target: HTMLElement; startX: number; startY: number; from: { x: number; y: number }; before: RectSnapshot; moved: boolean } | null = null;
   let canceledDragTarget: HTMLElement | null = null;
+  let resizeClickGuard: { handler: (event: MouseEvent) => void; timeout: number } | null = null;
+  const clearResizeClickGuard = (): void => {
+    if (!resizeClickGuard) return;
+    document.removeEventListener("click", resizeClickGuard.handler, true);
+    window.clearTimeout(resizeClickGuard.timeout);
+    resizeClickGuard = null;
+  };
   const cancelDragPreview = (): void => {
     if (!drag) return;
     const current = drag;
@@ -570,6 +589,11 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   };
 
   const onClick = (event: MouseEvent): void => {
+    if (resizeClickGuard) {
+      clearResizeClickGuard();
+      event.preventDefault(); event.stopImmediatePropagation();
+      return;
+    }
     if (!active || event.composedPath().includes(host)) return;
     if (compareMode === "side-by-side") { event.preventDefault(); event.stopImmediatePropagation(); return; }
     if (canceledDragTarget && event.composedPath().includes(canceledDragTarget)) {
@@ -619,17 +643,45 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     document.removeEventListener("submit", blockSubmit, true);
     window.open = originalOpen;
   };
-  let resize: { target: HTMLElement; startX: number; startY: number; before: RectSnapshot; beforeWidth: string; beforeHeight: string; hadStyleAttribute: boolean } | null = null;
-  const cancelResizePreview = (): void => {
+  const guardCanceledResizeClick = (): void => {
+    clearResizeClickGuard();
+    const handler = (event: MouseEvent): void => {
+      event.preventDefault(); event.stopImmediatePropagation();
+      clearResizeClickGuard();
+    };
+    const timeout = window.setTimeout(() => {
+      clearResizeClickGuard();
+    }, 500);
+    resizeClickGuard = { handler, timeout };
+    document.addEventListener("click", handler, true);
+  };
+  let resize: { target: HTMLElement; pointerId: number; startX: number; startY: number; before: RectSnapshot; beforeWidth: string; beforeHeight: string; hadStyleAttribute: boolean } | null = null;
+  const cancelResizePreview = (guardClick = true): void => {
     if (!resize) return;
     const current = resize;
     resize = null;
+    if (resizeHandle.hasPointerCapture(current.pointerId)) {
+      resizeHandle.releasePointerCapture(current.pointerId);
+      if (guardClick) guardCanceledResizeClick();
+    }
     current.target.style.width = current.beforeWidth;
     current.target.style.height = current.beforeHeight;
     if (!current.hadStyleAttribute && current.target.getAttribute("style") === "") current.target.removeAttribute("style");
     updateBoxes();
   };
-  function start(): void { if (active) return; active = true; originalOpen = window.open; attachReviewListeners(); render(); }
+  function start(): void {
+    if (active) return;
+    if (!reviewStarted) {
+      setCompare(preferredCompareMode, false);
+      applyViewportDisplay(preferredViewport);
+      session.viewport = viewportInfo(preferredViewport);
+    }
+    active = true;
+    reviewStarted = true;
+    originalOpen = window.open;
+    attachReviewListeners();
+    render();
+  }
   function stop(): void { cancelDragPreview(); cancelResizePreview(); if (!active) return; active = false; detachReviewListeners(); hoverTarget = null; render(); }
 
   const panelHeader = $(".head") as HTMLElement;
@@ -692,16 +744,24 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     compareFrame.className = `compare ${mode}`;
     compareFrame.style.opacity = mode === "overlay" ? String(compareOpacity) : "";
     (shadow.querySelector("[data-compare]") as HTMLSelectElement).value = mode;
-    if (save) saveLocalPreference({ compare: { mode, opacity: compareOpacity }, review: { defaultCompareMode: mode } });
+    if (save) {
+      preferredCompareMode = mode;
+      saveLocalPreference({ compare: { mode, opacity: compareOpacity }, review: { defaultCompareMode: mode } });
+    }
     attachScrollSync();
     render();
   };
-  const setViewport = (value: ViewportPreset): void => {
+  const applyViewportDisplay = (value: ViewportPreset): void => {
     preset = value;
     const widths: Record<ViewportPreset, number> = { desktop: window.innerWidth, tablet: 768, mobile: 390, custom: Math.max(320, Math.round(window.innerWidth * 0.72)) };
     guide.style.width = `${Math.min(widths[value], window.innerWidth)}px`;
     guide.dataset.label = `${messages[`${value}Option` as keyof Messages]} · ${widths[value]}px (${messages.layoutGuide})`;
     guide.hidden = value === "desktop";
+    (shadow.querySelector("[data-viewport]") as HTMLSelectElement).value = value;
+  };
+  const setViewport = (value: ViewportPreset): void => {
+    applyViewportDisplay(value);
+    preferredViewport = value;
     saveLocalPreference({ review: { defaultViewport: value } });
     persistSpecificationChange();
   };
@@ -709,7 +769,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   resizeHandle.addEventListener("pointerdown", (event) => {
     const target = selected.at(-1); if (!target) return;
     event.preventDefault(); event.stopPropagation();
-    resize = { target, startX: event.clientX, startY: event.clientY, before: rectOf(target), beforeWidth: target.style.width, beforeHeight: target.style.height, hadStyleAttribute: target.hasAttribute("style") };
+    resize = { target, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: rectOf(target), beforeWidth: target.style.width, beforeHeight: target.style.height, hadStyleAttribute: target.hasAttribute("style") };
     resizeHandle.setPointerCapture(event.pointerId);
   });
   resizeHandle.addEventListener("pointermove", (event) => {
@@ -722,10 +782,11 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     if (!resize) return;
     const current = resize;
     const afterWidth = current.target.style.width; const afterHeight = current.target.style.height; const after = rectOf(current.target);
-    cancelResizePreview();
+    cancelResizePreview(false);
     const instruction = newInstruction(current.target, { type: "resize", before: current.before, after });
     executeVisual({ label: "resize", instruction, apply: () => { current.target.style.width = afterWidth; current.target.style.height = afterHeight; updateBoxes(); }, revert: () => { current.target.style.width = current.beforeWidth; current.target.style.height = current.beforeHeight; updateBoxes(); } });
   });
+  resizeHandle.addEventListener("pointercancel", () => cancelResizePreview(false));
 
   const applyVisibility = (type: "hide" | "remove"): void => {
     for (const target of selected) {
@@ -789,6 +850,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     else if (action === "align") alignLeft();
     else if (action === "spacing") equalSpacing();
     else if (action === "handoff") toggleHandoff();
+    else if (action === "end-review") requestEndReview();
+    else if (action === "cancel-end") { endDialog.close(); endReviewButton.focus(); }
+    else if (action === "confirm-end") { if (confirmHandoff()) endDialog.close(); }
+    else if (action === "discard-end") discardAndEndReview();
     else if (action === "help") helpDialog.showModal();
     else if (action === "close-help") helpDialog.close();
     else if (action === "reset-panel") resetPanelPosition();
@@ -869,6 +934,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   compareFrame.addEventListener("load", onCompareLoad);
   editedSideFrame.addEventListener("load", onCompareLoad);
   originalSideFrame.addEventListener("load", onCompareLoad);
+  endDialog.addEventListener("cancel", () => window.setTimeout(() => endReviewButton.focus(), 0));
   window.addEventListener("scroll", updateBoxes, { passive: true });
   const onWindowResize = (): void => {
     applyPanelPosition(); applyLauncherPosition(); updateBoxes();
@@ -884,11 +950,62 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     else unregisterTools = unregister;
   });
 
-  function clear(): void {
+  function rollbackReviewWork(): void {
     cancelDragPreview();
     cancelResizePreview();
     while (history.canUndo) history.undo();
-    history.clear(); restorePreviewTransforms(); session.annotations = []; markSessionDraft(session); refreshSessionSummary(session); selected = []; storage.clear(); render();
+    history.clear();
+    restorePreviewTransforms();
+    session.annotations = [];
+    markSessionDraft(session);
+    refreshSessionSummary(session);
+    selected = [];
+    hoverTarget = null;
+  }
+  function resetSessionWork(): void {
+    delete session.confirmedAt;
+    Object.assign(session, {
+      sessionId: id("review"),
+      route: `${location.pathname}${location.search}${location.hash}`,
+      viewport: viewportInfo(preset),
+      createdAt: new Date().toISOString(),
+      status: "draft" as const,
+      summary: { total: 0, pending: 0, resolved: 0, byOperation: {} },
+      annotations: [],
+    });
+  }
+  function requestEndReview(): void {
+    refreshSessionSummary(session);
+    if (session.status === "draft" && hasPendingInstructions(session)) {
+      render();
+      endDialog.showModal();
+      cancelEndButton.focus();
+      return;
+    }
+    discardAndEndReview();
+  }
+  function discardAndEndReview(): void {
+    if (active) detachReviewListeners();
+    active = false;
+    rollbackReviewWork();
+    setCompare("edited", false);
+    applyViewportDisplay("desktop");
+    intent = "other"; comment = ""; precision = "approximate"; applyScope = "current-viewport";
+    (shadow.querySelector("[data-intent]") as HTMLSelectElement).value = intent;
+    (shadow.querySelector("[data-comment]") as HTMLTextAreaElement).value = comment;
+    (shadow.querySelector("[data-precision]") as HTMLSelectElement).value = precision;
+    (shadow.querySelector("[data-scope]") as HTMLSelectElement).value = applyScope;
+    resetSessionWork();
+    reviewStarted = false;
+    storage.clear();
+    if (endDialog.open) endDialog.close();
+    render();
+    if (!launcher.hidden) launcher.focus();
+  }
+  function clear(): void {
+    rollbackReviewWork();
+    storage.clear();
+    render();
   }
   function destroy(): void {
     destroyed = true; stop(); clear(); unregisterTools(); detachScrollSync();

@@ -72,6 +72,26 @@ test("supports multi-select, hide, compare and locale controls", async ({ page }
   await expect.poll(() => page.locator("[data-codex-visual-instructions]").evaluate((host: any) => !host.shadowRoot.querySelector(".side-compare").hidden)).toBe(true);
 });
 
+test("enables selection actions only for the required selection count", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const host = page.locator("[data-codex-visual-instructions]");
+  const actionState = () => host.evaluate((element: any) => ({
+    clear: element.shadowRoot.querySelector('[data-action="clear-selection"]').disabled,
+    align: element.shadowRoot.querySelector('[data-action="align"]').disabled,
+    spacing: element.shadowRoot.querySelector('[data-action="spacing"]').disabled,
+  }));
+
+  expect(await actionState()).toEqual({ clear: true, align: true, spacing: true });
+  await page.locator(".actions button").nth(0).click();
+  expect(await actionState()).toEqual({ clear: false, align: true, spacing: true });
+  await page.locator(".actions button").nth(1).click({ modifiers: ["Shift"] });
+  expect(await actionState()).toEqual({ clear: false, align: false, spacing: true });
+  await page.locator(".actions button").nth(2).click({ modifiers: ["Shift"] });
+  expect(await actionState()).toEqual({ clear: false, align: false, spacing: false });
+  await host.locator('[data-action="clear-selection"]').click();
+  expect(await actionState()).toEqual({ clear: true, align: true, spacing: true });
+});
+
 test("moves, clamps, persists, and resets the panel without dragging controls", async ({ page }) => {
   await page.evaluate(() => (window as any).visualReview.start());
   const panel = page.locator("[data-codex-visual-instructions] .panel");
@@ -251,6 +271,146 @@ test("keeps selection during side-by-side and resumes editing after leaving it",
   });
   await page.locator("#intro").click({ position: { x: 10, y: 10 } });
   await expect(host.locator("[data-meta]")).toContainText("<p#intro>");
+});
+
+test("minimizes and resumes without changing a ready review", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const host = page.locator("[data-codex-visual-instructions]");
+  await page.getByTestId("hero-title").click({ position: { x: 10, y: 10 } });
+  await page.keyboard.press("ArrowRight");
+  await page.evaluate(() => (window as any).visualReview.confirm());
+  const confirmedAt = await page.evaluate(() => (window as any).visualReview.session.confirmedAt);
+  const previewTransform = await page.getByTestId("hero-title").getAttribute("style");
+  await host.evaluate((element: any) => {
+    const select = element.shadowRoot.querySelector("[data-compare]"); select.value = "side-by-side"; select.dispatchEvent(new Event("change"));
+  });
+  await page.evaluate(() => (window as any).visualReview.stop());
+  expect(await page.evaluate(() => (window as any).visualReview.active)).toBe(false);
+  await expect(host.locator(".panel")).toBeHidden();
+  await expect(host.locator(".launcher")).toHaveText("Resume review");
+  await expect(host.locator(".side-compare")).toBeVisible();
+  expect(await host.locator(".selection").count()).toBe(0);
+  expect(await page.getByTestId("hero-title").getAttribute("style")).toBe(previewTransform);
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+  expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBe(confirmedAt);
+  await host.locator(".launcher").click();
+  expect(await page.evaluate(() => (window as any).visualReview.active)).toBe(true);
+  await expect(host.locator(".panel")).toBeVisible();
+  await expect(host.locator(".side-compare")).toBeVisible();
+  expect(await host.locator(".selection").count()).toBe(1);
+  expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+  expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBe(confirmedAt);
+});
+
+test("minimize cancels a temporary resize but keeps committed preview history", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const title = page.getByTestId("hero-title");
+  await title.click({ position: { x: 10, y: 10 } });
+  await page.keyboard.press("ArrowRight");
+  const committedTransform = await title.getAttribute("style");
+  const target = page.locator("#intro");
+  await target.click({ position: { x: 10, y: 10 } });
+  const before = await target.boundingBox();
+  const handle = await page.locator("[data-codex-visual-instructions] .resize").boundingBox();
+  expect(before).not.toBeNull(); expect(handle).not.toBeNull();
+  await page.mouse.move(handle!.x + 5, handle!.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(handle!.x + 45, handle!.y + 30);
+  await page.evaluate(() => (window as any).visualReview.stop());
+  await page.mouse.up();
+  expect(await target.getAttribute("style")).toBeNull();
+  const after = await target.boundingBox();
+  expect(after!.width).toBeCloseTo(before!.width, 0); expect(after!.height).toBeCloseTo(before!.height, 0);
+  expect(await title.getAttribute("style")).toBe(committedTransform);
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).visualReview.active)).toBe(false);
+});
+
+test("keeps draft work when end is cancelled and reuses confirm semantics", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const host = page.locator("[data-codex-visual-instructions]");
+  await page.getByTestId("hero-title").click({ position: { x: 10, y: 10 } });
+  await page.keyboard.press("ArrowRight");
+  const transformBefore = await page.getByTestId("hero-title").getAttribute("style");
+  await host.locator("[data-action=end-review]").click();
+  await expect(host.locator("[data-end-dialog]")).toBeVisible();
+  await expect(host.locator("[data-end-warning]")).toHaveText("Unconfirmed instructions: 1.");
+  await expect(host.locator("[data-action=cancel-end]")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(host.locator("[data-end-dialog]")).toBeHidden();
+  await expect(host.locator("[data-action=end-review]")).toBeFocused();
+  await host.locator("[data-action=end-review]").click();
+  await host.locator("[data-action=cancel-end]").click();
+  await expect(host.locator("[data-end-dialog]")).toBeHidden();
+  expect(await page.getByTestId("hero-title").getAttribute("style")).toBe(transformBefore);
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(1);
+  expect(await host.locator("[data-action=undo]").isEnabled()).toBe(true);
+  await host.locator("[data-action=end-review]").click();
+  await host.locator("[data-action=confirm-end]").click();
+  await expect(host.locator("[data-end-dialog]")).toBeHidden();
+  expect(await page.evaluate(() => (window as any).visualReview.active)).toBe(true);
+  expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+  expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBeTruthy();
+  expect(await page.getByTestId("hero-title").getAttribute("style")).toBe(transformBefore);
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(1);
+  await host.locator("[data-action=end-review]").click();
+  await expect(host.locator("[data-end-dialog]")).toBeHidden();
+  expect(await page.evaluate(() => (window as any).visualReview.active)).toBe(false);
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(0);
+});
+
+test("discards review work, restores the page, and starts a fresh review", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const host = page.locator("[data-codex-visual-instructions]");
+  const originalSessionId = await page.evaluate(() => (window as any).visualReview.session.sessionId);
+  const originalTitle = await page.getByTestId("hero-title").textContent();
+  await page.getByTestId("hero-title").click({ position: { x: 10, y: 10 } });
+  await page.keyboard.press("ArrowRight");
+  await host.evaluate((element: any) => {
+    const root = element.shadowRoot;
+    const text = root.querySelector("[data-text-input]"); text.value = "Temporary title"; root.querySelector('[data-action="text"]').click();
+    const compare = root.querySelector("[data-compare]"); compare.value = "side-by-side"; compare.dispatchEvent(new Event("change"));
+    const viewport = root.querySelector("[data-viewport]"); viewport.value = "mobile"; viewport.dispatchEvent(new Event("change"));
+    const locale = root.querySelector("[data-locale]"); locale.value = "ja"; locale.dispatchEvent(new Event("change"));
+    const theme = root.querySelector("[data-theme]"); theme.value = "light"; theme.dispatchEvent(new Event("change"));
+  });
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(2);
+  await host.locator("[data-action=end-review]").click();
+  await expect(host.locator("[data-end-warning]")).toHaveText("未確定の指示が2件あります。");
+  await host.locator("[data-action=discard-end]").click();
+  expect(await page.evaluate(() => (window as any).visualReview.active)).toBe(false);
+  await expect(host.locator(".panel")).toBeHidden();
+  await expect(host.locator(".side-compare")).toBeHidden();
+  await expect(host.locator(".compare")).toBeHidden();
+  await expect(host.locator(".guide")).toBeHidden();
+  expect(await host.locator(".selection").count()).toBe(0);
+  await expect(page.getByTestId("hero-title")).toHaveText(originalTitle!);
+  expect(await page.getByTestId("hero-title").getAttribute("style")).toBeNull();
+  const ended = await page.evaluate(() => ({
+    sessionId: (window as any).visualReview.session.sessionId,
+    status: (window as any).visualReview.session.status,
+    confirmedAt: (window as any).visualReview.session.confirmedAt,
+    annotations: (window as any).visualReview.session.annotations.length,
+    preferences: JSON.parse(localStorage.getItem("codex-visual-instructions:preferences") ?? "{}"),
+  }));
+  expect(ended.sessionId).not.toBe(originalSessionId);
+  expect(ended.status).toBe("draft"); expect(ended.confirmedAt).toBeUndefined(); expect(ended.annotations).toBe(0);
+  expect(ended.preferences.locale).toBe("ja"); expect(ended.preferences.appearance.theme).toBe("light");
+  expect(ended.preferences.compare.mode).toBe("side-by-side"); expect(ended.preferences.review.defaultViewport).toBe("mobile");
+  await expect(host.locator(".launcher")).toHaveText("レビュー開始");
+  await host.locator(".launcher").click();
+  expect(await host.locator("[data-action=undo]").isDisabled()).toBe(true);
+  await expect(host.locator("[data-compare]")).toHaveValue("side-by-side");
+  await expect(host.locator("[data-viewport]")).toHaveValue("mobile");
+  await expect(host.locator(".side-compare")).toBeVisible();
+  await expect(host.locator(".guide")).toBeVisible();
+  await host.evaluate((element: any) => {
+    const compare = element.shadowRoot.querySelector("[data-compare]"); compare.value = "edited"; compare.dispatchEvent(new Event("change"));
+  });
+  await page.locator("#intro").click({ position: { x: 10, y: 10 } });
+  await expect(host.locator("[data-meta]")).toContainText("<p#intro>");
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(0);
 });
 
 test("opens localized help without changing a ready session", async ({ page }) => {
