@@ -191,7 +191,9 @@ test("renders true side-by-side snapshots, syncs scroll, and cleans up", async (
   expect(surfaces.columns[0]!).toBeCloseTo(surfaces.columns[1]!, 0);
   expect(surfaces.labels).toEqual(["Edited — current preview", "Original — review snapshot"]);
   expect(surfaces.editedHasTitle).toBe(true); expect(surfaces.originalHasTitle).toBe(true); expect(surfaces.originalOverlayHidden).toBe(true);
-  await page.evaluate(() => window.scrollTo(0, 1200));
+  await page.mouse.move(400, 400);
+  await page.mouse.wheel(0, 1200);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await expect.poll(() => host.evaluate((element: any) => {
     const root = element.shadowRoot;
     return Math.min(root.querySelector("[data-side-edited]").contentWindow.scrollY, root.querySelector("[data-side-original]").contentWindow.scrollY);
@@ -212,6 +214,43 @@ test("renders true side-by-side snapshots, syncs scroll, and cleans up", async (
   expect(await page.locator("body").getAttribute("style")).toBe(beforeBodyStyle);
   expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
   expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBe(confirmedAt);
+});
+
+test("blocks side-by-side pointer events from reaching the live page", async ({ page }) => {
+  await page.evaluate(() => {
+    (window as any).visualReview.start();
+    (window as any).livePointerDowns = 0;
+    document.querySelector("[data-testid=hero-title]")!.addEventListener("pointerdown", () => { (window as any).livePointerDowns += 1; });
+  });
+  const target = await page.getByTestId("hero-title").boundingBox(); expect(target).not.toBeNull();
+  const host = page.locator("[data-codex-visual-instructions]");
+  const annotationsBefore = await page.evaluate(() => (window as any).visualReview.session.annotations.length);
+  await host.evaluate((element: any) => {
+    const select = element.shadowRoot.querySelector("[data-compare]"); select.value = "side-by-side"; select.dispatchEvent(new Event("change"));
+  });
+  expect(await host.evaluate((element: any) => getComputedStyle(element.shadowRoot.querySelector(".side-compare")).pointerEvents)).toBe("auto");
+  await page.mouse.click(target!.x + 10, target!.y + 10);
+  expect(await page.evaluate(() => (window as any).livePointerDowns)).toBe(0);
+  expect(await host.locator(".selection").count()).toBe(0);
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(annotationsBefore);
+});
+
+test("keeps selection during side-by-side and resumes editing after leaving it", async ({ page }) => {
+  await page.evaluate(() => (window as any).visualReview.start());
+  const host = page.locator("[data-codex-visual-instructions]");
+  await page.getByTestId("hero-title").click({ position: { x: 10, y: 10 } });
+  const selectedBefore = await host.locator("[data-meta]").textContent();
+  const intro = await page.locator("#intro").boundingBox(); expect(intro).not.toBeNull();
+  await host.evaluate((element: any) => {
+    const select = element.shadowRoot.querySelector("[data-compare]"); select.value = "side-by-side"; select.dispatchEvent(new Event("change"));
+  });
+  await page.mouse.click(intro!.x + 10, intro!.y + 10);
+  expect(await host.locator("[data-meta]").textContent()).toBe(selectedBefore);
+  await host.evaluate((element: any) => {
+    const select = element.shadowRoot.querySelector("[data-compare]"); select.value = "edited"; select.dispatchEvent(new Event("change"));
+  });
+  await page.locator("#intro").click({ position: { x: 10, y: 10 } });
+  await expect(host.locator("[data-meta]")).toContainText("<p#intro>");
 });
 
 test("opens localized help without changing a ready session", async ({ page }) => {

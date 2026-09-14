@@ -89,7 +89,7 @@ const styles = `
   .compare.original { inset:0; width:100vw; height:100vh; }
   .compare.side-by-side { top:0; right:0; width:50vw; height:100vh; border-left:3px solid #6d5dfc; }
   .compare.overlay { inset:0; width:100vw; height:100vh; opacity:.5; pointer-events:none; }
-  .side-compare { position:fixed; inset:0; z-index:2147483643; display:grid; grid-template-columns:1fr 1fr; background:#fff; pointer-events:none; }
+  .side-compare { position:fixed; inset:0; z-index:2147483643; display:grid; grid-template-columns:1fr 1fr; background:#fff; pointer-events:auto; touch-action:pan-y; }
   .compare-surface { position:relative; overflow:hidden; height:100vh; background:#fff; }
   .compare-surface + .compare-surface { border-left:3px solid var(--vi-accent); }
   .compare-surface iframe { position:absolute; inset:0; width:200%; height:200%; border:0; transform:scale(.5); transform-origin:top left; pointer-events:none; }
