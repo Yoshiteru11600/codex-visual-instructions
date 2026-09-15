@@ -9,6 +9,7 @@ export { HistoryStack } from "./core/history";
 export { sanitizeElementMetadata, sanitizeSnapshot } from "./core/sanitize";
 export { confirmSession, hasPendingInstructions, markSessionDraft, refreshSessionSummary, summarizeInstructions } from "./core/session";
 export { registerVisualReviewTools } from "./webmcp";
+export { ReviewWorkerClient } from "./worker-client";
 
 /**
  * Installs the review overlay. Nothing runs merely by importing this package.

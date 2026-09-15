@@ -13,14 +13,23 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "codex-visual-bridge": "./dist/bridge/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./bridge": {
+      "types": "./dist/bridge/index.d.ts",
+      "import": "./dist/bridge/index.js"
     }
   },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
+    "dev:worker": "npm run build && node scripts/dev-worker.mjs",
+    "bridge": "node dist/bridge/cli.js",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

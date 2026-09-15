@@ -43,12 +43,50 @@ For a vanilla page, load the ESM build from your dev server and call `install()`
 3. Drag, resize, nudge, replace text, hide, or preview removal.
 4. Attach an intent category, comment, precision, and viewport scope.
 5. Select **Confirm instructions for Codex** to mark the session ready.
-6. Ask Codex to implement the current visual review session.
+6. With a Local Bridge configured, explicitly select **Ask Codex to implement**.
 7. Codex reads the Site Tools payload, investigates source, implements compatible instructions together, reloads, verifies, and marks completed items resolved.
 
-Visual instructions start as `draft`. **Confirm instructions for Codex** marks a session with unresolved instructions as `ready` and records `confirmedAt`; it does not send an HTTP request or contact an external API. A specification-changing edit returns the session to `draft` and clears `confirmedAt`, while panel, locale, and comparison-view changes do not. Sessions with no pending instructions cannot be confirmed. The payload summary reports `total`, `pending`, `resolved`, and operation counts across all instructions.
+Visual instructions start as `draft`. **Confirm instructions for Codex** marks a session with unresolved instructions as `ready` and records `confirmedAt`; confirmation alone does not start a worker. A specification-changing edit returns the session to `draft` and clears `confirmedAt`, while panel, locale, and comparison-view changes do not. Sessions with no pending instructions cannot be confirmed. The payload summary reports `total`, `pending`, `resolved`, and operation counts across all instructions.
 
 The browser preview is a visual specification, not a literal source patch. Codex must inspect the real project structure and implement the intent using its existing layout, components, tokens, and responsive conventions. The tool deliberately does not attempt DOM-to-React/Vue/Svelte source mapping.
+
+## Local Codex worker
+
+The optional worker path requires a current Codex CLI with App Server support. It uses a separate App Server thread; it does not inject messages into the current Codex Desktop conversation.
+
+Build the package, then start the bridge for one exact workspace and browser origin:
+
+```bash
+pnpm build
+pnpm bridge -- --workspace /absolute/path/to/project --origin http://127.0.0.1:5173
+```
+
+The bridge prints a one-time JSON connection descriptor. Pass it at runtime rather than committing it:
+
+```ts
+install({
+  workerBridge: {
+    endpoint: "http://127.0.0.1:<dynamic-port>",
+    capabilityToken: "<one-time-token>",
+  },
+});
+```
+
+The Vanilla example also accepts `VITE_CODEX_VISUAL_BRIDGE_ENDPOINT` and `VITE_CODEX_VISUAL_BRIDGE_TOKEN` as process-local development variables. Do not put the token in a tracked `.env` file.
+
+For local end-to-end testing, start Vite and the Local Bridge together from a normal terminal:
+
+```bash
+pnpm dev:worker
+# or, when pnpm is not on PATH
+npm run dev:worker
+```
+
+The launcher chooses an available loopback port, starts the Bridge for this repository, and passes the one-time connection details only through Vite's process environment. It prints the Vanilla example URL but never prints or persists the token. Use `pnpm dev:worker -- --port 5181` or `npm run dev:worker -- 5181` to request a fixed port, or `--workspace <absolute-path>` when reviewing another project served by this checkout.
+
+The architecture is `Visual Instructions → loopback Local Bridge → stdio Codex App Server → isolated worker thread`. The bridge binds only to `127.0.0.1`, validates the exact browser Origin and capability/CSRF token, fixes the worker directory to the configured project, permits one write task per workspace, and does not expose an arbitrary-prompt route. The token is not persisted. Worker commands use workspace-write with network access disabled and do not escalate beyond that sandbox. Clicking **Ask Codex to implement** after confirmation is the explicit point at which Codex may modify source files.
+
+Agent messages stream back into the overlay. Completion does not automatically resolve or discard review annotations; visually verify the result first. Cancel interrupts the current turn and never performs an automatic Git reset.
 
 ## Site Tools (WebMCP)
 
@@ -90,7 +128,7 @@ UI labels are separated into English, Japanese, French, and Russian locale modul
 ## Privacy and security
 
 - Telemetry: none
-- External API: none
+- External API: none (the optional worker communicates only with a local Codex App Server)
 - Cloud storage: none
 - Required broad browser permissions: none
 - Active session storage: localStorage on the reviewed origin only; reload restoration and DOM operation replay are not provided in v0.1

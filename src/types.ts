@@ -127,7 +127,33 @@ export interface InstallOptions {
   config?: PartialDeep<VisualReviewConfig>;
   startActive?: boolean;
   storageKey?: string;
+  workerBridge?: WorkerBridgeConfig;
 }
+
+export interface WorkerBridgeConfig {
+  endpoint: string;
+  capabilityToken: string;
+}
+
+export type ReviewTaskStatus =
+  | "queued" | "accepted" | "inspecting" | "implementing" | "verifying"
+  | "completed" | "failed" | "cancelled";
+
+export interface ReviewTaskMessage { itemId: string; text: string }
+export interface ReviewTaskError { code: string; message: string }
+export interface ReviewTask {
+  id: string;
+  reviewSessionId: string;
+  status: ReviewTaskStatus;
+  messages: ReviewTaskMessage[];
+  error?: ReviewTaskError;
+}
+
+export type ReviewTaskEvent =
+  | { type: "snapshot"; task: ReviewTask }
+  | { type: "status"; status: ReviewTaskStatus }
+  | { type: "agent-message-delta"; itemId: string; delta: string }
+  | { type: "error"; error: ReviewTaskError };
 
 export type PartialDeep<T> = {
   [K in keyof T]?: T[K] extends Record<string, unknown> ? PartialDeep<T[K]> : T[K];

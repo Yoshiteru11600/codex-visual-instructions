@@ -59,6 +59,43 @@ test("confirms a pending session and returns to draft after editing", async ({ p
   expect(await page.evaluate(() => (window as any).visualReview.session.confirmedAt)).toBeUndefined();
 });
 
+test("starts the local worker only after explicit confirmation and renders its reply", async ({ page }) => {
+  await page.evaluate(async () => {
+    (window as any).visualReview.destroy();
+    const load = new Function("return import('/dist/index.js')") as () => Promise<typeof import("../../src")>;
+    const { install } = await load();
+    (window as any).visualReview = install({ workerBridge: { endpoint: "http://127.0.0.1:9321", capabilityToken: "test-token" } });
+    (window as any).visualReview.start();
+  });
+  await page.route("http://127.0.0.1:9321/review-tasks", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer test-token");
+    expect(route.request().headers()["x-codex-visual-csrf"]).toBe("test-token");
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ id: "task-1", reviewSessionId: "review", status: "queued", messages: [] }) });
+  });
+  await page.route("http://127.0.0.1:9321/review-tasks/task-1/events", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await route.fulfill({ status: 200, contentType: "application/x-ndjson", body: [
+      { type: "agent-message-delta", itemId: "message-1", delta: "Implemented " },
+      { type: "agent-message-delta", itemId: "message-1", delta: "the change." },
+      { type: "agent-message-delta", itemId: "message-2", delta: "Checks passed." },
+      { type: "status", status: "completed" },
+    ].map((event) => JSON.stringify(event)).join("\n") + "\n" });
+  });
+  const host = page.locator("[data-codex-visual-instructions]");
+  const ask = host.locator('[data-action="worker-request"]');
+  await expect(ask).toBeDisabled();
+  await page.getByTestId("hero-title").click(); await page.keyboard.press("ArrowRight");
+  await host.locator('[data-action="handoff"]').click(); await expect(ask).toBeEnabled();
+  await ask.click(); await expect(ask).toBeDisabled();
+  await host.locator('[data-action="end-review"]').click();
+  await expect(host.locator("[data-end-warning]")).toContainText("Codex is still working");
+  await expect(host.locator('[data-action="cancel-worker-end"]')).toBeVisible();
+  await host.locator('[data-action="cancel-end"]').click();
+  await expect(host.locator("[data-worker-status]")).toHaveText("Completed");
+  await expect(host.locator(".worker-message")).toHaveText(["Implemented the change.", "Checks passed."]);
+  expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(1);
+});
+
 test("supports multi-select, hide, compare and locale controls", async ({ page }) => {
   await page.evaluate(() => (window as any).visualReview.start());
   await page.locator(".actions button").nth(0).click();

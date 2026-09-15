@@ -22,6 +22,8 @@ import {
   type VisualReviewHandle,
 } from "./types";
 import { registerVisualReviewTools } from "./webmcp";
+import { ReviewWorkerClient } from "./worker-client";
+import type { ReviewTask, ReviewTaskEvent } from "./types";
 
 const HOST_ATTRIBUTE = "data-codex-visual-instructions";
 const STORAGE_KEY = "codex-visual-instructions:session:v1";
@@ -78,6 +80,10 @@ const styles = `
   .handoff .primary { width:100%; padding:9px 12px; background:var(--vi-accent); border-color:var(--vi-accent-border); color:#fff; font-weight:650; }
   .handoff .primary:hover { filter:brightness(1.08); } .handoff .primary:disabled { background:var(--vi-control); color:var(--vi-muted); }
   .handoff-status { margin:0; color:var(--vi-success); font-size:12px; } .handoff-summary { color:var(--vi-muted); font-size:11px; }
+  .worker { display:grid; gap:7px; padding-top:8px; border-top:1px solid var(--vi-border); }
+  .worker h3 { margin:0; font-size:12px; } .worker-status { color:var(--vi-muted); font-size:11px; }
+  .worker-messages { display:grid; gap:6px; max-height:180px; overflow:auto; white-space:pre-wrap; }
+  .worker-message { margin:0; padding:7px 8px; border-radius:var(--vi-control-radius); background:var(--vi-surface); color:var(--vi-fg); }
   .end-review { width:100%; margin-top:2px; }
   details { border-top:1px solid var(--vi-border); padding-top:8px; } details summary { cursor:pointer; color:var(--vi-fg); font-weight:650; padding:3px 0; }
   details .section-body { display:grid; gap:10px; padding-top:9px; }
@@ -202,7 +208,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
         <label><span class="field-title"><span data-i18n="intent"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="intentHelp"></span></span><select data-intent><option value="spacing" data-i18n="spacingOption"></option><option value="alignment" data-i18n="alignmentOption"></option><option value="visual-hierarchy" data-i18n="visualHierarchyOption"></option><option value="responsive" data-i18n="responsiveOption"></option><option value="copy" data-i18n="copyOption"></option><option value="visibility" data-i18n="visibilityOption"></option><option value="interaction" data-i18n="interactionOption"></option><option value="exact-position" data-i18n="exactPositionOption"></option><option value="other" data-i18n="otherOption" selected></option></select></label>
         <label><span class="field-title"><span data-i18n="comment"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="commentHelp"></span></span><textarea data-comment maxlength="1000"></textarea></label>
         <div class="row"><label><span class="field-title"><span data-i18n="precision"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="precisionHelp"></span></span><select data-precision><option value="exact" data-i18n="exactOption"></option><option value="approximate" data-i18n="approximateOption" selected></option><option value="relationship" data-i18n="relationshipOption"></option><option value="intent-only" data-i18n="intentOnlyOption"></option></select></label><label><span class="field-title"><span data-i18n="scope"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="scopeHelp"></span></span><select data-scope><option value="current-viewport" data-i18n="currentViewportOption"></option><option value="current-breakpoint" data-i18n="currentBreakpointOption"></option><option value="all-narrower" data-i18n="allNarrowerOption"></option><option value="all-wider" data-i18n="allWiderOption"></option><option value="all-viewports" data-i18n="allViewportsOption"></option></select></label></div>
-        <div class="handoff"><div class="handoff-summary" data-handoff-summary></div><p class="handoff-status" data-handoff-status hidden></p><button class="primary" type="button" data-action="handoff"></button></div>
+        <div class="handoff"><div class="handoff-summary" data-handoff-summary></div><p class="handoff-status" data-handoff-status hidden></p><button class="primary" type="button" data-action="handoff"></button><div class="worker" data-worker hidden><button class="primary" type="button" data-action="worker-request" data-i18n="askCodex"></button><div data-worker-result hidden><h3 data-i18n="codex"></h3><span class="worker-status" data-worker-status></span><div class="worker-messages" data-worker-messages aria-live="polite"></div><div class="row"><button type="button" data-action="worker-cancel" data-i18n="cancel"></button><button type="button" data-action="worker-retry" data-i18n="retry"></button></div></div></div></div>
         <details data-section="view"><summary data-i18n="view"></summary><div class="section-body">
           <div class="row"><label><span data-i18n="compare"></span><select data-compare><option value="edited" data-i18n="editedOption"></option><option value="original" data-i18n="originalOption"></option><option value="side-by-side" data-i18n="sideBySideOption"></option><option value="overlay" data-i18n="overlayOption"></option></select></label><label><span data-i18n="viewport"></span><select data-viewport><option value="desktop" data-i18n="desktopOption"></option><option value="tablet" data-i18n="tabletOption"></option><option value="mobile" data-i18n="mobileOption"></option><option value="custom" data-i18n="customOption"></option></select></label></div>
           <label><span><span data-i18n="overlayOpacity"></span>: <output class="range-value" data-compare-opacity-value></output></span><input data-compare-opacity type="range" min="0" max="100" step="1" data-i18n-aria="overlayOpacity"></label>
@@ -225,7 +231,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     <div class="side-compare" hidden><div class="compare-surface"><span class="side-label" data-i18n="editedSurface"></span><iframe data-side-edited sandbox="allow-same-origin"></iframe></div><div class="compare-surface"><span class="side-label" data-i18n="originalSurface"></span><iframe data-side-original sandbox="allow-same-origin"></iframe></div></div>
     <div class="guide" hidden></div>
     <dialog data-remove-dialog><p data-warning></p><div class="row"><button data-action="cancel-remove" data-i18n="cancel"></button><button class="danger" data-action="confirm-remove" data-i18n="removePreview"></button></div></dialog>
-    <dialog data-end-dialog aria-labelledby="visual-end-dialog-title"><h2 id="visual-end-dialog-title" data-i18n="endReview"></h2><p data-end-warning></p><div class="row"><button data-action="cancel-end" data-i18n="back"></button><button data-action="confirm-end" data-i18n="confirmInstructions"></button><button class="danger" data-action="discard-end" data-i18n="discardAndEnd"></button></div></dialog>
+    <dialog data-end-dialog aria-labelledby="visual-end-dialog-title"><h2 id="visual-end-dialog-title" data-i18n="endReview"></h2><p data-end-warning></p><div class="row"><button data-action="cancel-end" data-i18n="back"></button><button data-action="cancel-worker-end" data-i18n="cancelWorker"></button><button data-action="confirm-end" data-i18n="confirmInstructions"></button><button class="danger" data-action="discard-end" data-i18n="discardAndEnd"></button></div></dialog>
     <dialog data-help-dialog><div class="help-content"><h2 data-i18n="helpTitle"></h2><section><h3 data-i18n="helpFlowTitle"></h3><p data-i18n="helpFlow"></p></section><section><h3 data-i18n="helpEditingTitle"></h3><p data-i18n="helpEditing"></p></section><section><h3 data-i18n="helpKeyboardTitle"></h3><p data-i18n="helpKeyboard"></p></section><section><h3 data-i18n="helpCompareTitle"></h3><p data-i18n="helpCompare"></p></section><section><h3 data-i18n="helpPrecisionTitle"></h3><p data-i18n="helpPrecision"></p></section><section><h3 data-i18n="helpScopeTitle"></h3><p data-i18n="helpScope"></p></section><section><h3 data-i18n="helpHandoffTitle"></h3><p data-i18n="helpHandoff"></p></section></div><div class="row"><button data-action="close-help" data-i18n="closeHelp"></button></div></dialog>
   `;
   shadow.append(shell);
@@ -246,6 +252,9 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const endDialog = $("[data-end-dialog]") as HTMLDialogElement;
   const endReviewButton = $("[data-action=end-review]") as HTMLButtonElement;
   const cancelEndButton = $("[data-action=cancel-end]") as HTMLButtonElement;
+  const cancelWorkerEndButton = $("[data-action=cancel-worker-end]") as HTMLButtonElement;
+  const confirmEndButton = $("[data-action=confirm-end]") as HTMLButtonElement;
+  const discardEndButton = $("[data-action=discard-end]") as HTMLButtonElement;
   const helpDialog = $("[data-help-dialog]") as HTMLDialogElement;
   const meta = $("[data-meta]") as HTMLElement;
   const textInput = $("[data-text-input]") as HTMLInputElement;
@@ -253,6 +262,13 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const textButton = shadow.querySelector<HTMLButtonElement>("[data-action=text]")!;
   const textWarning = $("[data-text-warning]") as HTMLElement;
   const handoffButton = shadow.querySelector<HTMLButtonElement>("[data-action=handoff]")!;
+  const workerContainer = $("[data-worker]") as HTMLElement;
+  const workerRequestButton = $("[data-action=worker-request]") as HTMLButtonElement;
+  const workerResult = $("[data-worker-result]") as HTMLElement;
+  const workerStatus = $("[data-worker-status]") as HTMLElement;
+  const workerMessages = $("[data-worker-messages]") as HTMLElement;
+  const workerCancelButton = $("[data-action=worker-cancel]") as HTMLButtonElement;
+  const workerRetryButton = $("[data-action=worker-retry]") as HTMLButtonElement;
   const viewSection = $("[data-section=view]") as HTMLDetailsElement;
   const preferencesSection = $("[data-section=preferences]") as HTMLDetailsElement;
   const panelOpacityInput = $("[data-panel-opacity]") as HTMLInputElement;
@@ -266,6 +282,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   shortcutInput.value = config.shortcuts["review.toggle"] ?? "Alt+Shift+R";
   viewSection.open = localPreferences.sections?.viewOpen ?? false;
   preferencesSection.open = localPreferences.sections?.preferencesOpen ?? false;
+  const workerClient = options.workerBridge ? new ReviewWorkerClient(options.workerBridge) : null;
+  let workerTask: ReviewTask | null = null;
+  let workerStream: AbortController | null = null;
+  const runningWorkerStatuses = new Set(["queued", "accepted", "inspecting", "implementing", "verifying"]);
 
   const fieldHelpButtons = [...shadow.querySelectorAll<HTMLButtonElement>(".field-help")];
   const closeFieldHelp = (except?: HTMLButtonElement): void => {
@@ -297,8 +317,37 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     return true;
   };
   const toggleHandoff = (): void => {
+    if (workerTask && runningWorkerStatuses.has(workerTask.status)) return;
     if (session.status === "ready") { markSessionDraft(session); persist(); }
     else confirmHandoff();
+  };
+  const applyWorkerEvent = (event: ReviewTaskEvent): void => {
+    if (!workerTask) return;
+    if (event.type === "snapshot") workerTask = event.task;
+    else if (event.type === "status") workerTask.status = event.status;
+    else if (event.type === "agent-message-delta") {
+      let message = workerTask.messages.find((entry) => entry.itemId === event.itemId);
+      if (!message) { message = { itemId: event.itemId, text: "" }; workerTask.messages.push(message); }
+      message.text += event.delta;
+    } else { workerTask.error = event.error; workerTask.status = "failed"; }
+    render();
+  };
+  const startWorkerTask = async (): Promise<void> => {
+    if (!workerClient || session.status !== "ready" || !hasPendingInstructions(session)) return;
+    if (workerTask && runningWorkerStatuses.has(workerTask.status)) return;
+    workerStream?.abort(); workerStream = new AbortController();
+    try {
+      workerTask = await workerClient.createTask(session); render();
+      await workerClient.stream(workerTask.id, applyWorkerEvent, workerStream.signal);
+    } catch (error) {
+      if (workerStream.signal.aborted) return;
+      workerTask = workerTask ?? { id: "local", reviewSessionId: session.sessionId, status: "failed", messages: [] };
+      workerTask.status = "failed"; workerTask.error = { code: "bridge_error", message: error instanceof Error ? error.message : String(error) }; render();
+    }
+  };
+  const cancelWorkerTask = async (): Promise<void> => {
+    if (!workerClient || !workerTask || !runningWorkerStatuses.has(workerTask.status)) return;
+    try { await workerClient.cancel(workerTask.id); } finally { workerStream?.abort(); workerTask.status = "cancelled"; render(); }
   };
   const saveLocalPreference = (patch: Record<string, unknown>): void => {
     try {
@@ -429,7 +478,21 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     const allResolved = session.summary.total > 0 && session.summary.pending === 0;
     handoffStatus.textContent = session.status === "ready" ? (allResolved ? messages.allResolved : messages.handoffReady) : "";
     handoffButton.textContent = session.status === "ready" ? messages.editInstructions : messages.requestChanges;
-    handoffButton.disabled = !hasPendingInstructions(session);
+    const workerRunning = Boolean(workerTask && runningWorkerStatuses.has(workerTask.status));
+    handoffButton.disabled = !hasPendingInstructions(session) || workerRunning;
+    workerContainer.hidden = !workerClient;
+    workerRequestButton.disabled = session.status !== "ready" || !hasPendingInstructions(session) || workerRunning;
+    workerResult.hidden = !workerTask;
+    if (workerTask) {
+      const statusKey = workerTask.status === "completed" ? "completed" : workerTask.status === "failed" ? "failed" : workerTask.status === "cancelled" ? "cancelled" : workerTask.status === "queued" ? "waiting" : "working";
+      workerStatus.textContent = messages[statusKey];
+      workerMessages.replaceChildren(...workerTask.messages.map((message) => { const paragraph = document.createElement("p"); paragraph.className = "worker-message"; paragraph.textContent = message.text; return paragraph; }));
+      if (workerTask.error) { const paragraph = document.createElement("p"); paragraph.className = "worker-message"; paragraph.textContent = workerTask.error.message; workerMessages.append(paragraph); }
+      workerCancelButton.hidden = !workerRunning; workerRetryButton.hidden = workerTask.status !== "failed" && workerTask.status !== "cancelled";
+    }
+    cancelWorkerEndButton.hidden = !workerRunning;
+    confirmEndButton.hidden = workerRunning;
+    discardEndButton.hidden = workerRunning;
     const primary = selected.at(-1);
     meta.replaceChildren();
     if (primary) {
@@ -850,8 +913,11 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     else if (action === "align") alignLeft();
     else if (action === "spacing") equalSpacing();
     else if (action === "handoff") toggleHandoff();
+    else if (action === "worker-request" || action === "worker-retry") void startWorkerTask();
+    else if (action === "worker-cancel") void cancelWorkerTask();
     else if (action === "end-review") requestEndReview();
     else if (action === "cancel-end") { endDialog.close(); endReviewButton.focus(); }
+    else if (action === "cancel-worker-end") { void cancelWorkerTask().then(() => endDialog.close()); }
     else if (action === "confirm-end") { if (confirmHandoff()) endDialog.close(); }
     else if (action === "discard-end") discardAndEndReview();
     else if (action === "help") helpDialog.showModal();
@@ -976,6 +1042,11 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   }
   function requestEndReview(): void {
     refreshSessionSummary(session);
+    if (workerTask && runningWorkerStatuses.has(workerTask.status)) {
+      render();
+      $("[data-end-warning]").textContent = messages.workerRunningEnd;
+      endDialog.showModal(); cancelWorkerEndButton.focus(); return;
+    }
     if (session.status === "draft" && hasPendingInstructions(session)) {
       render();
       endDialog.showModal();
@@ -1008,7 +1079,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     render();
   }
   function destroy(): void {
-    destroyed = true; stop(); clear(); unregisterTools(); detachScrollSync();
+    destroyed = true; workerStream?.abort(); stop(); clear(); unregisterTools(); detachScrollSync();
     compareFrame.removeEventListener("load", onCompareLoad);
     editedSideFrame.removeEventListener("load", onCompareLoad);
     originalSideFrame.removeEventListener("load", onCompareLoad);

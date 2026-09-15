@@ -110,4 +110,27 @@ describe("session serialization", () => {
     for (const handler of new Set(addedScrollHandlers)) expect(removedScrollHandlers).toContain(handler);
     add.mockRestore(); remove.mockRestore();
   });
+  it("starts a configured worker only after confirmation and renders ordered streamed messages", async () => {
+    const encoder = new TextEncoder(); let read = false;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      if (init?.method === "POST") return { ok: true, json: async () => ({ id: "task-1", reviewSessionId: "review-1", status: "queued", messages: [] }) } as Response;
+      return { ok: true, body: { getReader: () => ({ read: async () => {
+        if (read) return { done: true, value: undefined }; read = true;
+        return { done: false, value: encoder.encode([
+          { type: "agent-message-delta", itemId: "m1", delta: "First" },
+          { type: "agent-message-delta", itemId: "m2", delta: "Second" },
+          { type: "status", status: "completed" },
+        ].map((event) => JSON.stringify(event)).join("\n") + "\n") };
+      } }) } } as unknown as Response;
+    });
+    const handle = install({ workerBridge: { endpoint: "http://127.0.0.1:9999", capabilityToken: "secret" } });
+    handle.session.annotations.push(instruction());
+    const shadow = document.querySelector<HTMLElement>("[data-codex-visual-instructions]")!.shadowRoot!;
+    const request = shadow.querySelector<HTMLButtonElement>('[data-action="worker-request"]')!;
+    expect(request.disabled).toBe(true); expect(fetchMock).not.toHaveBeenCalled();
+    expect(handle.confirm()).toBe(true); expect(request.disabled).toBe(false); request.click();
+    await vi.waitFor(() => expect(shadow.querySelector("[data-worker-status]")?.textContent).toBe("Completed"));
+    expect([...shadow.querySelectorAll(".worker-message")].map((element) => element.textContent)).toEqual(["First", "Second"]);
+    expect(handle.session.annotations).toHaveLength(1); fetchMock.mockRestore(); handle.destroy();
+  });
 });
