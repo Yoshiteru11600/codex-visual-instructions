@@ -42,9 +42,8 @@ export class ReviewTaskManager {
     if (!active.has(task.status)) return;
     task.cancelRequested = true;
     try {
-      if (task.threadId && task.turnId) await task.client.request("turn/interrupt", { threadId: task.threadId, turnId: task.turnId });
-      if (active.has(task.status)) this.setStatus(task, "cancelled");
-      if (task.status === "cancelled") await task.client.stop();
+      if (!task.threadId || !task.turnId) throw new Error("Codex turn is not ready to be interrupted");
+      await task.client.request("turn/interrupt", { threadId: task.threadId, turnId: task.turnId });
     } catch (error) {
       task.cancelRequested = false;
       throw error;
@@ -108,7 +107,7 @@ export class ReviewTaskManager {
       });
       if (typeof result?.exitCode === "number" && result.exitCode !== 0) throw new Error(result.stderr || `exit code ${result.exitCode}`);
     } catch (error) {
-      throw new Error(`Codex cannot write to this workspace with the current permissions. ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Codex could not initialize this workspace with the required workspace-write sandbox. ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   private setStatus(task: InternalTask, status: ReviewTaskStatus): void { if (task.status === status) return; task.status = status; this.publish(task, { type: "status", status }); }

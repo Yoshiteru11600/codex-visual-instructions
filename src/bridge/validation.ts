@@ -3,13 +3,13 @@ import { access, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ReviewSession } from "../types";
 
-export async function validateWorkspace(value: string): Promise<string> {
+export async function validateWorkspace(value: string, checkAccess = access): Promise<string> {
   const workspace = resolve(value);
   let info;
   try { info = await stat(workspace); } catch { throw new Error(`Workspace does not exist: ${workspace}`); }
   if (!info.isDirectory()) throw new Error(`Workspace is not a directory: ${workspace}`);
-  try { await access(workspace, constants.R_OK | constants.W_OK); }
-  catch { throw new Error(`Codex cannot write to this workspace with the current permissions: ${workspace}`); }
+  try { await checkAccess(workspace, constants.R_OK | constants.W_OK); }
+  catch { throw new Error(`Workspace is not writable by the Bridge process: ${workspace}`); }
   return workspace;
 }
 

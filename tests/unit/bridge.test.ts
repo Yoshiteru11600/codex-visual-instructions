@@ -93,12 +93,15 @@ describe("review task lifecycle", () => {
     const retry = manager.create(session()); expect(retry.id).not.toBe(failed.id);
     await vi.waitFor(() => expect(manager.get(retry.id)?.status).toBe("completed"));
   });
-  it("cancels using turn/interrupt without rollback", async () => {
+  it("waits for interrupted completion before confirming cancellation", async () => {
     const client = new FakeClient(); class WaitingClient extends FakeClient { override async request(method: string): Promise<any> { if (method === "thread/start") return { thread: { id: "t" } }; if (method === "turn/start") return { turn: { id: "u" } }; return super.request(method); } }
     const waiting = Object.assign(new WaitingClient(), client);
     const manager = new ReviewTaskManager({ workspace: process.cwd(), makeClient: () => waiting as any }); const task = manager.create(session());
     await vi.waitFor(() => expect(manager.get(task.id)?.status).toBe("inspecting")); await manager.cancel(task.id);
-    expect(waiting.interrupted).toBe(true); expect(manager.get(task.id)?.status).toBe("cancelled");
+    expect(waiting.interrupted).toBe(true); expect(manager.get(task.id)?.status).toBe("inspecting"); expect(waiting.stopped).toBe(false);
+    waiting.emit("notification", "turn/completed", { turn: { status: "interrupted" } });
+    await vi.waitFor(() => expect(manager.get(task.id)?.status).toBe("cancelled"));
+    await vi.waitFor(() => expect(waiting.stopped).toBe(true));
   });
   it("does not report cancelled when interrupt fails and follows later completion", async () => {
     class InterruptFailureClient extends FakeClient {
@@ -179,7 +182,24 @@ describe("review task lifecycle", () => {
     const client = new PreflightFailureClient(); const manager = new ReviewTaskManager({ workspace: process.cwd(), makeClient: () => client as any });
     const task = manager.create({ ...session(), sessionId: "preflight" }); await vi.waitFor(() => expect(manager.get(task.id)?.status).toBe("failed"));
     expect(client.methods).not.toContain("thread/start");
-    expect(manager.get(task.id)?.error?.message).toContain("Codex cannot write to this workspace");
+    expect(manager.get(task.id)?.error?.message).toContain("could not initialize this workspace with the required workspace-write sandbox");
+    expect(manager.get(task.id)?.error?.message).not.toContain("can write");
+  });
+  it("treats a worker failure after successful preflight as failed", async () => {
+    class WorkerWriteFailureClient extends FakeClient {
+      override async request(method: string): Promise<any> {
+        if (method === "thread/start") return { thread: { id: "t" } };
+        if (method === "turn/start") {
+          queueMicrotask(() => this.emit("notification", "turn/completed", { turn: { status: "failed" } }));
+          return { turn: { id: "u" } };
+        }
+        return super.request(method);
+      }
+    }
+    const manager = new ReviewTaskManager({ workspace: process.cwd(), makeClient: () => new WorkerWriteFailureClient() as any });
+    const task = manager.create({ ...session(), sessionId: "worker-write-failure" });
+    await vi.waitFor(() => expect(manager.get(task.id)?.status).toBe("failed"));
+    expect(manager.get(task.id)?.error).toMatchObject({ code: "turn_failed", message: "Codex turn ended with status failed" });
   });
   it("carries a confirmed session through a source change, verification event, reply and completion", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vi-worker-")); const target = join(workspace, "fixture.txt"); await writeFile(target, "before");
@@ -212,6 +232,11 @@ describe("bridge security and validation", () => {
     await expect(validateWorkspace(directory)).resolves.toBe(directory);
     await expect(validateWorkspace(join(directory, "missing"))).rejects.toThrow("does not exist");
     await expect(validateWorkspace(file)).rejects.toThrow("not a directory");
+  });
+  it("reports OS-level workspace access failure as a Bridge process permission error", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vi-workspace-denied-"));
+    const denied = vi.fn(async () => { throw new Error("access denied"); });
+    await expect(validateWorkspace(directory, denied)).rejects.toThrow("Workspace is not writable by the Bridge process");
   });
   it("requires a confirmed structured ReviewSession and builds a bounded prompt", () => {
     expect(validateReviewSession(session())).toMatchObject({ sessionId: "review-1" });
