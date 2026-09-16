@@ -23,7 +23,7 @@ import {
 } from "./types";
 import { registerVisualReviewTools } from "./webmcp";
 import { ReviewWorkerClient } from "./worker-client";
-import { PairingClient, parsePairingDescriptor } from "./pairing-client";
+import { BridgeClientError, PairingClient, parsePairingDescriptor } from "./pairing-client";
 import type { BridgePairingDescriptor, BridgePairingPreview, BridgeStatus, ReviewTask, ReviewTaskEvent } from "./types";
 
 const HOST_ATTRIBUTE = "data-codex-visual-instructions";
@@ -291,8 +291,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   shortcutInput.value = config.shortcuts["review.toggle"] ?? "Alt+Shift+R";
   viewSection.open = localPreferences.sections?.viewOpen ?? false;
   preferencesSection.open = localPreferences.sections?.preferencesOpen ?? false;
-  let workerClient = options.workerBridge ? new ReviewWorkerClient(options.workerBridge) : null;
-  let bridgeStatus: BridgeStatus | null = null;
+  type BridgeConnectionState =
+    | { kind: "disconnected"; reason: "not_paired" | "bridge_unreachable" | "token_invalid" }
+    | { kind: "connected"; client: ReviewWorkerClient; status: BridgeStatus };
+  let connection: BridgeConnectionState = { kind: "disconnected", reason: "not_paired" };
   let pairingDescriptor: BridgePairingDescriptor | null = null;
   let pairingPreview: BridgePairingPreview | null = null;
   let pairingBusy = false;
@@ -351,6 +353,8 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     render();
   };
   const clearPairingSecret = (): void => { pairingInput.value = ""; pairingDescriptor = null; pairingPreview = null; pairingSummary.hidden = true; pairingSummary.replaceChildren(); pairingApproveButton.hidden = true; };
+  const disconnectBridge = (reason: "not_paired" | "bridge_unreachable" | "token_invalid"): void => { workerStream?.abort(); connection = { kind: "disconnected", reason }; clearPairingSecret(); render(); };
+  const isConnectionFailure = (error: unknown): boolean => error instanceof TypeError || (error instanceof BridgeClientError && (error.status === 401 || error.status === 403 || error.code === "invalid_token"));
   const openPairing = (startAfterApproval: boolean): void => { pendingWorkerStart = startAfterApproval; pairingError.textContent = ""; clearPairingSecret(); pairingDialog.showModal(); pairingInput.focus(); render(); };
   const checkPairing = async (): Promise<void> => {
     if (pairingBusy) return; pairingBusy = true; pairingError.textContent = ""; pairingApproveButton.hidden = true;
@@ -368,7 +372,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const approvePairing = async (): Promise<void> => {
     if (pairingBusy || !pairingDescriptor || !pairingPreview) return; pairingBusy = true; pairingError.textContent = "";
     try {
-      const approved = await new PairingClient(pairingDescriptor).approve(); workerClient = new ReviewWorkerClient(approved.connection); bridgeStatus = approved.status;
+      const approved = await new PairingClient(pairingDescriptor).approve(); connection = { kind: "connected", client: new ReviewWorkerClient(approved.connection), status: approved.status };
       const shouldStart = pendingWorkerStart && session.status === "ready" && hasPendingInstructions(session); pendingWorkerStart = false; clearPairingSecret(); pairingDialog.close(); render();
       if (shouldStart) await startWorkerTask();
     } catch (error) { pairingError.textContent = error instanceof Error ? error.message : String(error); }
@@ -377,25 +381,29 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const startWorkerTask = async (): Promise<void> => {
     if (session.status !== "ready" || !hasPendingInstructions(session)) return;
     if (workerTask && runningWorkerStatuses.has(workerTask.status)) return;
-    if (!workerClient) { openPairing(true); return; }
+    if (connection.kind !== "connected") { openPairing(true); return; }
+    const workerClient = connection.client;
     workerStarting = true; render();
     workerStream?.abort(); workerStream = new AbortController();
     try {
-      bridgeStatus = await workerClient.status();
+      connection = { kind: "connected", client: workerClient, status: await workerClient.status() };
       workerTask = await workerClient.createTask(session); render();
       await workerClient.stream(workerTask.id, applyWorkerEvent, workerStream.signal);
     } catch (error) {
       if (workerStream.signal.aborted) return;
+      if (isConnectionFailure(error)) { disconnectBridge(error instanceof BridgeClientError && (error.status === 401 || error.status === 403) ? "token_invalid" : "bridge_unreachable"); openPairing(true); return; }
       workerTask = workerTask ?? { id: "local", reviewSessionId: session.sessionId, status: "failed", messages: [] };
       workerTask.status = "failed"; workerTask.error = { code: "bridge_error", message: error instanceof Error ? error.message : String(error) }; render();
     } finally { workerStarting = false; render(); }
   };
   const cancelWorkerTask = async (): Promise<void> => {
-    if (!workerClient || !workerTask || !runningWorkerStatuses.has(workerTask.status)) return;
+    if (connection.kind !== "connected" || !workerTask || !runningWorkerStatuses.has(workerTask.status)) return;
+    const workerClient = connection.client;
     try {
       workerTask = await workerClient.cancel(workerTask.id);
       if (workerTask.status === "cancelled") workerStream?.abort();
     } catch (error) {
+      if (isConnectionFailure(error)) { disconnectBridge(error instanceof BridgeClientError ? "token_invalid" : "bridge_unreachable"); return; }
       workerTask.error = { code: "cancel_failed", message: `${messages.cancelFailed} ${error instanceof Error ? error.message : String(error)}` };
     }
     render();
@@ -532,7 +540,9 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     const workerRunning = workerStarting || Boolean(workerTask && runningWorkerStatuses.has(workerTask.status));
     handoffButton.disabled = !hasPendingInstructions(session) || workerRunning;
     workerContainer.hidden = false;
-    bridgeStatusText.textContent = workerClient ? `${messages.bridgeConnected} — ${bridgeStatus?.workspace.split(/[\\/]/).pop() ?? "Codex"}` : messages.bridgeDisconnected;
+    bridgeStatusText.textContent = connection.kind === "connected"
+      ? `${messages.bridgeConnected} — ${connection.status.workspace.split(/[\\/]/).pop() ?? "Codex"}`
+      : connection.reason === "bridge_unreachable" ? messages.bridgeUnreachable : connection.reason === "token_invalid" ? messages.bridgeExpired : messages.bridgeDisconnected;
     workerRequestButton.disabled = session.status !== "ready" || !hasPendingInstructions(session) || workerRunning;
     workerResult.hidden = !workerTask;
     if (workerTask) {
@@ -1135,7 +1145,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     render();
   }
   function destroy(): void {
-    destroyed = true; workerStream?.abort(); clearPairingSecret(); if (pairingDialog.open) pairingDialog.close(); workerClient = null; bridgeStatus = null; stop(); clear(); unregisterTools(); detachScrollSync();
+    destroyed = true; workerStream?.abort(); clearPairingSecret(); if (pairingDialog.open) pairingDialog.close(); connection = { kind: "disconnected", reason: "not_paired" }; stop(); clear(); unregisterTools(); detachScrollSync();
     compareFrame.removeEventListener("load", onCompareLoad);
     editedSideFrame.removeEventListener("load", onCompareLoad);
     originalSideFrame.removeEventListener("load", onCompareLoad);

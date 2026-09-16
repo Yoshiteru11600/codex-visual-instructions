@@ -110,11 +110,14 @@ describe("session serialization", () => {
     for (const handler of new Set(addedScrollHandlers)) expect(removedScrollHandlers).toContain(handler);
     add.mockRestore(); remove.mockRestore();
   });
-  it("starts a configured worker only after confirmation and renders ordered streamed messages", async () => {
+  it("starts a worker only after explicit pairing approval and renders ordered streamed messages", async () => {
     const encoder = new TextEncoder(); let read = false;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const url = String(_input);
+      if (url.endsWith("/pairing")) return { ok: true, json: async () => ({ endpoint: "http://127.0.0.1:9999", allowedOrigin: location.origin, workspace: "C:\\app", expiresAt: "2030-01-01T00:00:00.000Z", readiness: { status: "ready" }, activeTask: false }) } as Response;
+      if (url.endsWith("/pairing/approve")) return { ok: true, json: async () => ({ capabilityToken: "runtime", status: { workspace: "C:\\app", readiness: { status: "ready" }, state: "running", activeTask: false } }) } as Response;
       if (String(_input).endsWith("/status")) return { ok: true, json: async () => ({ workspace: "C:\\app", readiness: { status: "ready" }, state: "running", activeTask: false }) } as Response;
-      if (init?.method === "POST") return { ok: true, json: async () => ({ id: "task-1", reviewSessionId: "review-1", status: "queued", messages: [] }) } as Response;
+      if (url.endsWith("/review-tasks") && init?.method === "POST") return { ok: true, json: async () => ({ id: "task-1", reviewSessionId: "review-1", status: "queued", messages: [] }) } as Response;
       return { ok: true, body: { getReader: () => ({ read: async () => {
         if (read) return { done: true, value: undefined }; read = true;
         return { done: false, value: encoder.encode([
@@ -124,12 +127,18 @@ describe("session serialization", () => {
         ].map((event) => JSON.stringify(event)).join("\n") + "\n") };
       } }) } } as unknown as Response;
     });
-    const handle = install({ workerBridge: { endpoint: "http://127.0.0.1:9999", capabilityToken: "secret" } });
+    const handle = install();
     handle.session.annotations.push(instruction());
     const shadow = document.querySelector<HTMLElement>("[data-codex-visual-instructions]")!.shadowRoot!;
+    const pairingDialog = shadow.querySelector<HTMLDialogElement>("[data-pairing-dialog]")!;
+    pairingDialog.showModal = () => pairingDialog.setAttribute("open", ""); pairingDialog.close = () => pairingDialog.removeAttribute("open");
     const request = shadow.querySelector<HTMLButtonElement>('[data-action="worker-request"]')!;
     expect(request.disabled).toBe(true); expect(fetchMock).not.toHaveBeenCalled();
-    expect(handle.confirm()).toBe(true); expect(request.disabled).toBe(false); request.click();
+    expect(handle.confirm()).toBe(true); expect(request.disabled).toBe(false); request.click(); expect(fetchMock).not.toHaveBeenCalled();
+    const dialog = pairingDialog; const input = dialog.querySelector<HTMLTextAreaElement>("[data-pairing-input]")!;
+    input.value = JSON.stringify({ version: 1, endpoint: "http://127.0.0.1:9999", pairingToken: "pairing", allowedOrigin: location.origin, workspace: "C:\\app", expiresAt: "2030-01-01T00:00:00.000Z" });
+    dialog.querySelector<HTMLButtonElement>('[data-action="check-pairing"]')!.click(); await vi.waitFor(() => expect(dialog.querySelector<HTMLButtonElement>('[data-action="approve-pairing"]')!.hidden).toBe(false));
+    dialog.querySelector<HTMLButtonElement>('[data-action="approve-pairing"]')!.click();
     await vi.waitFor(() => expect(shadow.querySelector("[data-worker-status]")?.textContent).toBe("Completed"));
     expect([...shadow.querySelectorAll(".worker-message")].map((element) => element.textContent)).toEqual(["First", "Second"]);
     expect(handle.session.annotations).toHaveLength(1); fetchMock.mockRestore(); handle.destroy();

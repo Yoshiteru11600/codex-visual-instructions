@@ -60,13 +60,9 @@ test("confirms a pending session and returns to draft after editing", async ({ p
 });
 
 test("starts the local worker only after explicit confirmation and renders its reply", async ({ page }) => {
-  await page.evaluate(async () => {
-    (window as any).visualReview.destroy();
-    const load = new Function("return import('/dist/index.js')") as () => Promise<typeof import("../../src")>;
-    const { install } = await load();
-    (window as any).visualReview = install({ workerBridge: { endpoint: "http://127.0.0.1:9321", capabilityToken: "test-token" } });
-    (window as any).visualReview.start();
-  });
+  await page.evaluate(() => (window as any).visualReview.start());
+  await page.route("http://127.0.0.1:9321/pairing", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ endpoint: "http://127.0.0.1:9321", allowedOrigin: "http://127.0.0.1:4173", workspace: "C:\\app", expiresAt: "2030-01-01T00:00:00.000Z", readiness: { status: "ready" }, activeTask: false }) }));
+  await page.route("http://127.0.0.1:9321/pairing/approve", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ capabilityToken: "test-token", status: { workspace: "C:\\app", readiness: { status: "ready" }, state: "running", activeTask: false } }) }));
   await page.route("http://127.0.0.1:9321/review-tasks", async (route) => {
     expect(route.request().headers().authorization).toBe("Bearer test-token");
     expect(route.request().headers()["x-codex-visual-csrf"]).toBe("test-token");
@@ -87,7 +83,7 @@ test("starts the local worker only after explicit confirmation and renders its r
   await expect(ask).toBeDisabled();
   await page.getByTestId("hero-title").click(); await page.keyboard.press("ArrowRight");
   await host.locator('[data-action="handoff"]').click(); await expect(ask).toBeEnabled();
-  await ask.click(); await expect(ask).toBeDisabled();
+  await ask.click(); const pairing = host.locator("[data-pairing-dialog]"); await pairing.locator("[data-pairing-input]").fill(JSON.stringify({ version: 1, endpoint: "http://127.0.0.1:9321", pairingToken: "pair", allowedOrigin: "http://127.0.0.1:4173", workspace: "C:\\app", expiresAt: "2030-01-01T00:00:00.000Z" })); await pairing.locator('[data-action="check-pairing"]').click(); await pairing.locator('[data-action="approve-pairing"]').click(); await expect(ask).toBeDisabled();
   await host.locator('[data-action="end-review"]').click();
   await expect(host.locator("[data-end-warning]")).toContainText("Codex is still working");
   await expect(host.locator('[data-action="cancel-worker-end"]')).toBeVisible();
@@ -114,14 +110,34 @@ test("pairs explicitly before starting a worker and keeps the ready session", as
   await expect(host.locator("[data-bridge-status]")).toContainText("connected"); expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
 });
 
+for (const status of [401, 403]) test(`drops an invalid runtime token after HTTP ${status} and returns to pairing without losing the review`, async ({ page }) => {
+  const endpoint = "http://127.0.0.1:9323";
+  await page.route(`${endpoint}/pairing`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ endpoint, allowedOrigin: "http://127.0.0.1:4173", workspace: "C:\\app", expiresAt: "2030-01-01T00:00:00.000Z", readiness: { status: "ready" }, activeTask: false }) }));
+  await page.route(`${endpoint}/pairing/approve`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ capabilityToken: "old-runtime", status: { workspace: "C:\\app", readiness: { status: "ready" }, state: "running", activeTask: false } }) }));
+  await page.route(`${endpoint}/status`, (route) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ code: "invalid_token", message: "Invalid capability token" }) }));
+  await page.evaluate(() => (window as any).visualReview.start()); const host = page.locator("[data-codex-visual-instructions]");
+  await page.getByTestId("hero-title").click(); await page.keyboard.press("ArrowRight"); await host.locator('[data-action="handoff"]').click(); await host.locator('[data-action="worker-request"]').click();
+  const dialog = host.locator("[data-pairing-dialog]"); await dialog.locator("[data-pairing-input]").fill(JSON.stringify({ version: 1, endpoint, pairingToken: "pair", allowedOrigin: "http://127.0.0.1:4173", workspace: "C:\\app", expiresAt: "2030-01-01T00:00:00.000Z" })); await dialog.locator('[data-action="check-pairing"]').click(); await dialog.locator('[data-action="approve-pairing"]').click();
+  await expect(dialog).toBeVisible(); await expect(host.locator("[data-bridge-status]")).toContainText("expired");
+  expect(await page.evaluate(() => ({ status: (window as any).visualReview.session.status, count: (window as any).visualReview.session.annotations.length }))).toEqual({ status: "ready", count: 1 });
+});
+
+test("drops an unreachable bridge connection and offers pairing without losing the review", async ({ page }) => {
+  const endpoint = "http://127.0.0.1:9324";
+  await page.route(`${endpoint}/pairing`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ endpoint, allowedOrigin: "http://127.0.0.1:4173", workspace: "C:\\app", expiresAt: "2030-01-01T00:00:00.000Z", readiness: { status: "ready" }, activeTask: false }) }));
+  await page.route(`${endpoint}/pairing/approve`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ capabilityToken: "old-runtime", status: { workspace: "C:\\app", readiness: { status: "ready" }, state: "running", activeTask: false } }) }));
+  await page.route(`${endpoint}/status`, (route) => route.abort("connectionrefused"));
+  await page.evaluate(() => (window as any).visualReview.start()); const host = page.locator("[data-codex-visual-instructions]");
+  await page.getByTestId("hero-title").click(); await page.keyboard.press("ArrowRight"); await host.locator('[data-action="handoff"]').click(); await host.locator('[data-action="worker-request"]').click();
+  const dialog = host.locator("[data-pairing-dialog]"); await dialog.locator("[data-pairing-input]").fill(JSON.stringify({ version: 1, endpoint, pairingToken: "pair", allowedOrigin: "http://127.0.0.1:4173", workspace: "C:\\app", expiresAt: "2030-01-01T00:00:00.000Z" })); await dialog.locator('[data-action="check-pairing"]').click(); await dialog.locator('[data-action="approve-pairing"]').click();
+  await expect(dialog).toBeVisible(); await expect(host.locator("[data-bridge-status]")).toContainText("cannot be reached");
+  expect(await page.evaluate(() => ({ status: (window as any).visualReview.session.status, count: (window as any).visualReview.session.annotations.length }))).toEqual({ status: "ready", count: 1 });
+});
+
 test("keeps the worker active and explains when cancellation cannot be confirmed", async ({ page }) => {
-  await page.evaluate(async () => {
-    (window as any).visualReview.destroy();
-    const load = new Function("return import('/dist/index.js')") as () => Promise<typeof import("../../src")>;
-    const { install } = await load();
-    (window as any).visualReview = install({ workerBridge: { endpoint: "http://127.0.0.1:9321", capabilityToken: "test-token" } });
-    (window as any).visualReview.start();
-  });
+  await page.evaluate(() => (window as any).visualReview.start());
+  await page.route("http://127.0.0.1:9321/pairing", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ endpoint: "http://127.0.0.1:9321", allowedOrigin: "http://127.0.0.1:4173", workspace: "C:\\app", expiresAt: "2030-01-01T00:00:00.000Z", readiness: { status: "ready" }, activeTask: false }) }));
+  await page.route("http://127.0.0.1:9321/pairing/approve", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ capabilityToken: "test-token", status: { workspace: "C:\\app", readiness: { status: "ready" }, state: "running", activeTask: false } }) }));
   await page.route("http://127.0.0.1:9321/review-tasks", (route) => route.fulfill({
     status: 202, contentType: "application/json", body: JSON.stringify({ id: "task-cancel", reviewSessionId: "review", status: "queued", messages: [] }),
   }));
@@ -134,7 +150,7 @@ test("keeps the worker active and explains when cancellation cannot be confirmed
   }));
   const host = page.locator("[data-codex-visual-instructions]");
   await page.getByTestId("hero-title").click(); await page.keyboard.press("ArrowRight");
-  await host.locator('[data-action="handoff"]').click(); await host.locator('[data-action="worker-request"]').click();
+  await host.locator('[data-action="handoff"]').click(); await host.locator('[data-action="worker-request"]').click(); const pairing = host.locator("[data-pairing-dialog]"); await pairing.locator("[data-pairing-input]").fill(JSON.stringify({ version: 1, endpoint: "http://127.0.0.1:9321", pairingToken: "pair", allowedOrigin: "http://127.0.0.1:4173", workspace: "C:\\app", expiresAt: "2030-01-01T00:00:00.000Z" })); await pairing.locator('[data-action="check-pairing"]').click(); await pairing.locator('[data-action="approve-pairing"]').click();
   await expect(host.locator("[data-worker-status]")).toHaveText("Working…");
   await host.locator('[data-action="worker-cancel"]').click();
   await expect(host.locator("[data-worker-status]")).not.toHaveText("Cancelled");

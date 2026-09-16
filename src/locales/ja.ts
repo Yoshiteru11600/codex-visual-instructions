@@ -33,6 +33,7 @@ export const ja: Record<keyof typeof en, string> = {
   handoffReady: "✓ 指示を確定しました。Codexに実装を依頼してください",
   askCodex: "Codexに修正を依頼", codex: "Codex", waiting: "待機中…", working: "作業中…",
   bridgeDisconnected: "○ Codex未接続 — 接続設定", bridgeConnected: "● Codex接続済み",
+  bridgeUnreachable: "○ Bridgeへ接続できません — 再接続", bridgeExpired: "○ 接続の有効期限が切れました — 再接続",
   pairingTitle: "Local Bridgeへ接続", pairingHelp: "Bridge CLIが表示した一回限りの接続情報を貼り付け、ページOrigin、接続先、workspaceを確認してください。",
   checkConnection: "接続情報を確認", approveConnection: "接続を承認", currentOrigin: "現在のページOrigin", localBridge: "Local Bridge", targetWorkspace: "対象workspace",
   completed: "完了", failed: "失敗", cancelled: "キャンセル済み", retry: "再試行",

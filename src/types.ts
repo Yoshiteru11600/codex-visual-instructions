@@ -127,8 +127,6 @@ export interface InstallOptions {
   config?: PartialDeep<VisualReviewConfig>;
   startActive?: boolean;
   storageKey?: string;
-  /** @deprecated Use the explicit pairing flow instead. */
-  workerBridge?: WorkerBridgeConfig;
 }
 
 export interface WorkerBridgeConfig {

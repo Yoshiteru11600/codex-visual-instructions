@@ -14,6 +14,7 @@ export const fr: Record<keyof typeof en, string> = {
   handoffReady: "✓ Instructions confirmées. Demandez à Codex de les implémenter.",
   askCodex: "Demander à Codex d’implémenter", codex: "Codex", waiting: "En attente…", working: "En cours…",
   bridgeDisconnected: "○ Codex non connecté — paramètres", bridgeConnected: "● Codex connecté",
+  bridgeUnreachable: "○ Local Bridge inaccessible — reconnecter", bridgeExpired: "○ Connexion expirée — reconnecter",
   pairingTitle: "Connecter le Local Bridge", pairingHelp: "Collez les informations de jumelage uniques affichées par le Bridge CLI, puis vérifiez l’origine, le point de terminaison et le workspace.",
   checkConnection: "Vérifier la connexion", approveConnection: "Approuver la connexion", currentOrigin: "Origine de la page", localBridge: "Local Bridge", targetWorkspace: "Workspace cible",
   completed: "Terminé", failed: "Échec", cancelled: "Annulé", retry: "Réessayer",

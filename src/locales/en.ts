@@ -32,6 +32,7 @@ export const en = {
   handoffReady: "✓ Instructions confirmed. Ask Codex to implement them.",
   askCodex: "Ask Codex to implement", codex: "Codex", waiting: "Waiting…", working: "Working…",
   bridgeDisconnected: "○ Codex not connected — connection settings", bridgeConnected: "● Codex connected",
+  bridgeUnreachable: "○ Local Bridge cannot be reached — reconnect", bridgeExpired: "○ Connection expired — reconnect",
   pairingTitle: "Connect Local Bridge", pairingHelp: "Paste the one-time pairing information printed by the Bridge CLI. Review the page origin, endpoint, and workspace before approving.",
   checkConnection: "Check connection", approveConnection: "Approve connection", currentOrigin: "Current page origin", localBridge: "Local Bridge", targetWorkspace: "Target workspace",
   completed: "Completed", failed: "Failed", cancelled: "Cancelled", retry: "Retry",
