@@ -23,5 +23,6 @@ export class PairingSession {
     this.used = true; this.runtimeToken = random(); return this.runtimeToken;
   }
   isRuntimeToken(token: string): boolean { return Boolean(this.runtimeToken && token === this.runtimeToken); }
+  isApproved(): boolean { return this.runtimeToken !== null; }
   invalidate(): void { this.runtimeToken = null; this.used = true; }
 }

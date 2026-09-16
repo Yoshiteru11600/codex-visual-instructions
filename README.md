@@ -54,14 +54,47 @@ The browser preview is a visual specification, not a literal source patch. Codex
 
 The optional worker path requires a current Codex CLI with App Server support. It uses a separate App Server thread; it does not inject messages into the current Codex Desktop conversation.
 
-Build the package, then start the bridge for one exact workspace and browser origin:
+Build the package, then start the user-local controller. Starting the controller does not select a workspace or Origin and does not grant review access:
 
 ```bash
 pnpm build
-pnpm bridge -- --workspace /absolute/path/to/project --origin http://127.0.0.1:5173
+pnpm bridge -- start
+pnpm bridge -- pair --workspace /absolute/path/to/project --origin http://127.0.0.1:5173
 ```
 
-The bridge prints one short-lived JSON pairing descriptor. Confirm the review, select **Ask Codex to implement**, paste the descriptor, review the exact page Origin, loopback endpoint, and workspace, then explicitly approve the connection. The pairing token expires after five minutes and can be used only once. Approval issues a separate runtime token that remains in browser memory only; reload or Bridge restart requires pairing again. Never put either token in storage, a URL, a repository file, or an `.env` file.
+`pair` prints one short-lived JSON pairing descriptor. Confirm the review, select **Ask Codex to implement**, paste the descriptor, review the exact page Origin, loopback endpoint, and workspace, then explicitly approve the connection. The pairing token expires after five minutes and can be used only once. Approval issues a separate runtime token that remains in browser memory only; reload or Bridge restart requires pairing again. Never put either token in storage, a URL, a repository file, or an `.env` file.
+
+Check or stop the current controller with:
+
+```bash
+pnpm bridge -- status
+pnpm bridge -- status --json
+pnpm bridge -- stop
+```
+
+To start the controller automatically when the current user logs in, opt in explicitly:
+
+```bash
+pnpm bridge -- autostart install
+pnpm bridge -- status
+```
+
+Autostart runs only the permission-free controller. It stores no workspace, Origin, pairing token, runtime token, review session, or prompt. Each review target still requires an explicit `pair --workspace ... --origin ...` command and approval of the displayed values in the browser. Windows uses a hidden shortcut in the current user's Startup folder; macOS uses a current-user LaunchAgent; Linux uses a systemd user service. The controller uses a per-user Windows Named Pipe or a mode-`0600` Unix domain socket; no browser-callable HTTP administration endpoint is exposed.
+
+Disable login startup and stop the current controller separately:
+
+```bash
+pnpm bridge -- autostart remove
+pnpm bridge -- stop
+```
+
+`autostart remove` affects the next login and does not stop the current process. `stop` ends the current controller and its HTTP Bridge but leaves autostart registration unchanged. Both operations are current-user scoped and require no administrator access. A running review task blocks `stop` and workspace replacement.
+
+The previous foreground form remains available during the Alpha transition and never enables autostart implicitly:
+
+```bash
+pnpm bridge -- --workspace /absolute/path/to/project --origin http://127.0.0.1:5173
+```
 
 For local end-to-end testing, start Vite and the Local Bridge together from a normal terminal:
 
@@ -73,7 +106,7 @@ npm run dev:worker
 
 The launcher chooses an available loopback port, starts the Bridge for this repository, and prints the pairing descriptor once. Use `pnpm dev:worker -- --port 5181` or `npm run dev:worker -- 5181` to request a fixed port, or `--workspace <absolute-path>` when reviewing another project served by this checkout.
 
-The architecture is `Visual Instructions → loopback Local Bridge → stdio Codex App Server → isolated worker thread`. The bridge binds only to `127.0.0.1`, validates the exact browser Origin and pairing/runtime token, fixes the worker directory to the configured project, permits one write task per workspace, and does not expose an arbitrary-prompt route. Tokens are not persisted. Worker commands use workspace-write with network access disabled and do not escalate beyond that sandbox. Clicking **Ask Codex to implement** and approving the pairing is the explicit point at which Codex may modify source files.
+The architecture is `CLI → user-local IPC controller → loopback Local Bridge → stdio Codex App Server → isolated worker thread`. The HTTP Bridge binds only to `127.0.0.1`, validates the exact browser Origin and pairing/runtime token, fixes the worker directory to the configured project, permits one write task per workspace, and does not expose an arbitrary-prompt or administration route. Tokens are not persisted. Worker commands use workspace-write with network access disabled and do not escalate beyond that sandbox. Clicking **Ask Codex to implement** and approving the pairing is the explicit point at which Codex may modify source files.
 
 `localhost` and `127.0.0.1`, different schemes, and different ports are distinct Origins. Restart the Bridge with the exact page Origin when they do not match. An invalid workspace or unavailable Codex CLI is reported in the pairing preview without granting a runtime token. The open Shadow DOM is UI isolation, not a security boundary: scripts running in the reviewed page share its Origin and can observe in-page state. Use this Alpha only with pages and code you trust.
 

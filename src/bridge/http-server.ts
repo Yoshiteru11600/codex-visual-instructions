@@ -9,7 +9,7 @@ import { ReviewTaskManager } from "./task-manager";
 import { validateOrigin, validateReviewSession, validateWorkspace } from "./validation";
 
 export interface BridgeOptions { workspace: string; origins: string[]; codexCli?: string; timeoutMs?: number; pairingTtlMs?: number; now?: () => number }
-export interface RunningBridge { port: number; descriptor: BridgePairingDescriptor; close(): Promise<void> }
+export interface RunningBridge { port: number; descriptor: BridgePairingDescriptor; status(): BridgeStatus; paired(): boolean; close(): Promise<void> }
 const json = (response: ServerResponse, status: number, value: unknown): void => { response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }); response.end(JSON.stringify(value)); };
 const sendError = (response: ServerResponse, status: number, code: BridgeErrorCode, message: string): void => json(response, status, { code, message });
 const bearer = (request: IncomingMessage): string => request.headers.authorization?.replace(/^Bearer /, "") ?? "";
@@ -65,5 +65,5 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
   });
   await new Promise<void>((ok, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", ok); });
   const port = (server.address() as AddressInfo).port; pairing = new PairingSession(`http://127.0.0.1:${port}`, allowedOrigin, workspace, { ...(options.pairingTtlMs === undefined ? {} : { ttlMs: options.pairingTtlMs }), ...(options.now ? { now: options.now } : {}) });
-  return { port, descriptor: pairing.descriptor(), close: async () => { pairing.invalidate(); await manager?.close(); manager = null; await new Promise<void>((ok, reject) => server.close((cause) => cause ? reject(cause) : ok())); } };
+  return { port, descriptor: pairing.descriptor(), status, paired: () => pairing.isApproved(), close: async () => { pairing.invalidate(); await manager?.close(); manager = null; await new Promise<void>((ok, reject) => server.close((cause) => cause ? reject(cause) : ok())); } };
 }
