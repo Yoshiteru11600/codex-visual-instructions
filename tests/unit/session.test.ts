@@ -113,6 +113,7 @@ describe("session serialization", () => {
   it("starts a configured worker only after confirmation and renders ordered streamed messages", async () => {
     const encoder = new TextEncoder(); let read = false;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      if (String(_input).endsWith("/status")) return { ok: true, json: async () => ({ workspace: "C:\\app", readiness: { status: "ready" }, state: "running", activeTask: false }) } as Response;
       if (init?.method === "POST") return { ok: true, json: async () => ({ id: "task-1", reviewSessionId: "review-1", status: "queued", messages: [] }) } as Response;
       return { ok: true, body: { getReader: () => ({ read: async () => {
         if (read) return { done: true, value: undefined }; read = true;

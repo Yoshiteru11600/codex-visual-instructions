@@ -3,6 +3,12 @@ import { access, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ReviewSession } from "../types";
 
+export function validateOrigin(value: string): string {
+  let url: URL; try { url = new URL(value); } catch { throw new Error(`Invalid origin: ${value}`); }
+  if (!/^https?:$/.test(url.protocol) || url.origin !== value || url.pathname !== "/" || url.search || url.hash || url.username || url.password) throw new Error(`Invalid origin: ${value}`);
+  return url.origin;
+}
+
 export async function validateWorkspace(value: string, checkAccess = access): Promise<string> {
   const workspace = resolve(value);
   let info;

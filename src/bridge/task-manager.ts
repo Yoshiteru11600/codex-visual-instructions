@@ -30,6 +30,7 @@ export class ReviewTaskManager {
     return this.publicTask(task);
   }
   get(id: string): ReviewTask | undefined { const task = this.tasks.get(id); return task && this.publicTask(task); }
+  activeTask(): ReviewTask | undefined { const task = [...this.tasks.values()].find((item) => active.has(item.status)); return task && this.publicTask(task); }
   subscribe(id: string, listener: (event: ReviewTaskEvent) => void): () => void {
     const task = this.tasks.get(id); if (!task) throw new Error("ReviewTask not found");
     for (const event of task.events) listener(event);

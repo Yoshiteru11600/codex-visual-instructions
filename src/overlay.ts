@@ -23,7 +23,8 @@ import {
 } from "./types";
 import { registerVisualReviewTools } from "./webmcp";
 import { ReviewWorkerClient } from "./worker-client";
-import type { ReviewTask, ReviewTaskEvent } from "./types";
+import { PairingClient, parsePairingDescriptor } from "./pairing-client";
+import type { BridgePairingDescriptor, BridgePairingPreview, BridgeStatus, ReviewTask, ReviewTaskEvent } from "./types";
 
 const HOST_ATTRIBUTE = "data-codex-visual-instructions";
 const STORAGE_KEY = "codex-visual-instructions:session:v1";
@@ -106,6 +107,7 @@ const styles = `
   .guide::before { content:attr(data-label); position:absolute; top:8px; left:8px; padding:3px 6px; border-radius:4px; background:#6d5dfc; color:#fff; font:11px system-ui,sans-serif; }
   dialog { max-width:560px; max-height:calc(100vh - 32px); overflow:auto; border:1px solid var(--vi-border); border-radius:var(--vi-radius); background:rgb(var(--vi-bg)); color:var(--vi-fg); padding:18px; font:13px/1.5 system-ui,sans-serif; pointer-events:auto; }
   dialog::backdrop { background:#0009; } dialog .row { justify-content:flex-end; margin-top:14px; }
+  .bridge-status { margin:0; color:var(--vi-muted); font-size:12px; } .pairing-summary { display:grid; gap:6px; padding:9px; background:var(--vi-group); overflow-wrap:anywhere; }
   .help-content { display:grid; gap:12px; } .help-content h2 { margin:0; font-size:18px; } .help-content h3 { margin:0 0 3px; font-size:13px; } .help-content p { margin:0; color:var(--vi-muted); }
 `;
 
@@ -208,7 +210,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
         <label><span class="field-title"><span data-i18n="intent"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="intentHelp"></span></span><select data-intent><option value="spacing" data-i18n="spacingOption"></option><option value="alignment" data-i18n="alignmentOption"></option><option value="visual-hierarchy" data-i18n="visualHierarchyOption"></option><option value="responsive" data-i18n="responsiveOption"></option><option value="copy" data-i18n="copyOption"></option><option value="visibility" data-i18n="visibilityOption"></option><option value="interaction" data-i18n="interactionOption"></option><option value="exact-position" data-i18n="exactPositionOption"></option><option value="other" data-i18n="otherOption" selected></option></select></label>
         <label><span class="field-title"><span data-i18n="comment"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="commentHelp"></span></span><textarea data-comment maxlength="1000"></textarea></label>
         <div class="row"><label><span class="field-title"><span data-i18n="precision"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="precisionHelp"></span></span><select data-precision><option value="exact" data-i18n="exactOption"></option><option value="approximate" data-i18n="approximateOption" selected></option><option value="relationship" data-i18n="relationshipOption"></option><option value="intent-only" data-i18n="intentOnlyOption"></option></select></label><label><span class="field-title"><span data-i18n="scope"></span><button class="field-help" type="button" data-i18n-aria="fieldHelp">?</button><span class="field-tooltip" role="tooltip" data-i18n="scopeHelp"></span></span><select data-scope><option value="current-viewport" data-i18n="currentViewportOption"></option><option value="current-breakpoint" data-i18n="currentBreakpointOption"></option><option value="all-narrower" data-i18n="allNarrowerOption"></option><option value="all-wider" data-i18n="allWiderOption"></option><option value="all-viewports" data-i18n="allViewportsOption"></option></select></label></div>
-        <div class="handoff"><div class="handoff-summary" data-handoff-summary></div><p class="handoff-status" data-handoff-status hidden></p><button class="primary" type="button" data-action="handoff"></button><div class="worker" data-worker hidden><button class="primary" type="button" data-action="worker-request" data-i18n="askCodex"></button><div data-worker-result hidden><h3 data-i18n="codex"></h3><span class="worker-status" data-worker-status></span><div class="worker-messages" data-worker-messages aria-live="polite"></div><div class="row"><button type="button" data-action="worker-cancel" data-i18n="cancel"></button><button type="button" data-action="worker-retry" data-i18n="retry"></button></div></div></div></div>
+        <div class="handoff"><div class="handoff-summary" data-handoff-summary></div><p class="handoff-status" data-handoff-status hidden></p><button class="primary" type="button" data-action="handoff"></button><div class="worker" data-worker><button type="button" class="bridge-status" data-bridge-status data-action="pairing-settings" aria-live="polite"></button><button class="primary" type="button" data-action="worker-request" data-i18n="askCodex"></button><div data-worker-result hidden><h3 data-i18n="codex"></h3><span class="worker-status" data-worker-status></span><div class="worker-messages" data-worker-messages aria-live="polite"></div><div class="row"><button type="button" data-action="worker-cancel" data-i18n="cancel"></button><button type="button" data-action="worker-retry" data-i18n="retry"></button></div></div></div></div>
         <details data-section="view"><summary data-i18n="view"></summary><div class="section-body">
           <div class="row"><label><span data-i18n="compare"></span><select data-compare><option value="edited" data-i18n="editedOption"></option><option value="original" data-i18n="originalOption"></option><option value="side-by-side" data-i18n="sideBySideOption"></option><option value="overlay" data-i18n="overlayOption"></option></select></label><label><span data-i18n="viewport"></span><select data-viewport><option value="desktop" data-i18n="desktopOption"></option><option value="tablet" data-i18n="tabletOption"></option><option value="mobile" data-i18n="mobileOption"></option><option value="custom" data-i18n="customOption"></option></select></label></div>
           <label><span><span data-i18n="overlayOpacity"></span>: <output class="range-value" data-compare-opacity-value></output></span><input data-compare-opacity type="range" min="0" max="100" step="1" data-i18n-aria="overlayOpacity"></label>
@@ -233,6 +235,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     <dialog data-remove-dialog><p data-warning></p><div class="row"><button data-action="cancel-remove" data-i18n="cancel"></button><button class="danger" data-action="confirm-remove" data-i18n="removePreview"></button></div></dialog>
     <dialog data-end-dialog aria-labelledby="visual-end-dialog-title"><h2 id="visual-end-dialog-title" data-i18n="endReview"></h2><p data-end-warning></p><div class="row"><button data-action="cancel-end" data-i18n="back"></button><button data-action="cancel-worker-end" data-i18n="cancelWorker"></button><button data-action="confirm-end" data-i18n="confirmInstructions"></button><button class="danger" data-action="discard-end" data-i18n="discardAndEnd"></button></div></dialog>
     <dialog data-help-dialog><div class="help-content"><h2 data-i18n="helpTitle"></h2><section><h3 data-i18n="helpFlowTitle"></h3><p data-i18n="helpFlow"></p></section><section><h3 data-i18n="helpEditingTitle"></h3><p data-i18n="helpEditing"></p></section><section><h3 data-i18n="helpKeyboardTitle"></h3><p data-i18n="helpKeyboard"></p></section><section><h3 data-i18n="helpCompareTitle"></h3><p data-i18n="helpCompare"></p></section><section><h3 data-i18n="helpPrecisionTitle"></h3><p data-i18n="helpPrecision"></p></section><section><h3 data-i18n="helpScopeTitle"></h3><p data-i18n="helpScope"></p></section><section><h3 data-i18n="helpHandoffTitle"></h3><p data-i18n="helpHandoff"></p></section></div><div class="row"><button data-action="close-help" data-i18n="closeHelp"></button></div></dialog>
+    <dialog data-pairing-dialog><h2 data-i18n="pairingTitle"></h2><p data-i18n="pairingHelp"></p><textarea data-pairing-input autocomplete="off" spellcheck="false"></textarea><p class="hint" data-pairing-error aria-live="polite"></p><div class="pairing-summary" data-pairing-summary hidden></div><div class="row"><button data-action="close-pairing" data-i18n="back"></button><button data-action="check-pairing" data-i18n="checkConnection"></button><button data-action="approve-pairing" data-i18n="approveConnection" hidden></button></div></dialog>
   `;
   shadow.append(shell);
   document.documentElement.append(host);
@@ -256,6 +259,12 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const confirmEndButton = $("[data-action=confirm-end]") as HTMLButtonElement;
   const discardEndButton = $("[data-action=discard-end]") as HTMLButtonElement;
   const helpDialog = $("[data-help-dialog]") as HTMLDialogElement;
+  const pairingDialog = $("[data-pairing-dialog]") as HTMLDialogElement;
+  const pairingInput = $("[data-pairing-input]") as HTMLTextAreaElement;
+  const pairingError = $("[data-pairing-error]") as HTMLElement;
+  const pairingSummary = $("[data-pairing-summary]") as HTMLElement;
+  const pairingApproveButton = $("[data-action=approve-pairing]") as HTMLButtonElement;
+  const bridgeStatusText = $("[data-bridge-status]") as HTMLElement;
   const meta = $("[data-meta]") as HTMLElement;
   const textInput = $("[data-text-input]") as HTMLInputElement;
   const shortcutInput = $("[data-shortcut-input]") as HTMLInputElement;
@@ -282,8 +291,14 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   shortcutInput.value = config.shortcuts["review.toggle"] ?? "Alt+Shift+R";
   viewSection.open = localPreferences.sections?.viewOpen ?? false;
   preferencesSection.open = localPreferences.sections?.preferencesOpen ?? false;
-  const workerClient = options.workerBridge ? new ReviewWorkerClient(options.workerBridge) : null;
+  let workerClient = options.workerBridge ? new ReviewWorkerClient(options.workerBridge) : null;
+  let bridgeStatus: BridgeStatus | null = null;
+  let pairingDescriptor: BridgePairingDescriptor | null = null;
+  let pairingPreview: BridgePairingPreview | null = null;
+  let pairingBusy = false;
+  let pendingWorkerStart = false;
   let workerTask: ReviewTask | null = null;
+  let workerStarting = false;
   let workerStream: AbortController | null = null;
   const runningWorkerStatuses = new Set(["queued", "accepted", "inspecting", "implementing", "verifying"]);
 
@@ -335,18 +350,45 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     } else { workerTask.error = event.error; workerTask.status = "failed"; }
     render();
   };
+  const clearPairingSecret = (): void => { pairingInput.value = ""; pairingDescriptor = null; pairingPreview = null; pairingSummary.hidden = true; pairingSummary.replaceChildren(); pairingApproveButton.hidden = true; };
+  const openPairing = (startAfterApproval: boolean): void => { pendingWorkerStart = startAfterApproval; pairingError.textContent = ""; clearPairingSecret(); pairingDialog.showModal(); pairingInput.focus(); render(); };
+  const checkPairing = async (): Promise<void> => {
+    if (pairingBusy) return; pairingBusy = true; pairingError.textContent = ""; pairingApproveButton.hidden = true;
+    try {
+      pairingDescriptor = parsePairingDescriptor(pairingInput.value);
+      pairingPreview = await new PairingClient(pairingDescriptor).preview();
+      pairingSummary.replaceChildren(...[
+        `${messages.currentOrigin}: ${location.origin}`, `${messages.localBridge}: ${pairingPreview.endpoint}`, `${messages.targetWorkspace}: ${pairingPreview.workspace}`,
+      ].map((text) => { const item = document.createElement("div"); item.textContent = text; return item; }));
+      pairingSummary.hidden = false; pairingApproveButton.hidden = pairingPreview.readiness.status !== "ready";
+      if (pairingPreview.readiness.status !== "ready") pairingError.textContent = pairingPreview.readiness.message;
+    } catch (error) { pairingError.textContent = error instanceof Error ? error.message : String(error); pairingDescriptor = null; pairingPreview = null; }
+    finally { pairingBusy = false; render(); }
+  };
+  const approvePairing = async (): Promise<void> => {
+    if (pairingBusy || !pairingDescriptor || !pairingPreview) return; pairingBusy = true; pairingError.textContent = "";
+    try {
+      const approved = await new PairingClient(pairingDescriptor).approve(); workerClient = new ReviewWorkerClient(approved.connection); bridgeStatus = approved.status;
+      const shouldStart = pendingWorkerStart && session.status === "ready" && hasPendingInstructions(session); pendingWorkerStart = false; clearPairingSecret(); pairingDialog.close(); render();
+      if (shouldStart) await startWorkerTask();
+    } catch (error) { pairingError.textContent = error instanceof Error ? error.message : String(error); }
+    finally { pairingBusy = false; render(); }
+  };
   const startWorkerTask = async (): Promise<void> => {
-    if (!workerClient || session.status !== "ready" || !hasPendingInstructions(session)) return;
+    if (session.status !== "ready" || !hasPendingInstructions(session)) return;
     if (workerTask && runningWorkerStatuses.has(workerTask.status)) return;
+    if (!workerClient) { openPairing(true); return; }
+    workerStarting = true; render();
     workerStream?.abort(); workerStream = new AbortController();
     try {
+      bridgeStatus = await workerClient.status();
       workerTask = await workerClient.createTask(session); render();
       await workerClient.stream(workerTask.id, applyWorkerEvent, workerStream.signal);
     } catch (error) {
       if (workerStream.signal.aborted) return;
       workerTask = workerTask ?? { id: "local", reviewSessionId: session.sessionId, status: "failed", messages: [] };
       workerTask.status = "failed"; workerTask.error = { code: "bridge_error", message: error instanceof Error ? error.message : String(error) }; render();
-    }
+    } finally { workerStarting = false; render(); }
   };
   const cancelWorkerTask = async (): Promise<void> => {
     if (!workerClient || !workerTask || !runningWorkerStatuses.has(workerTask.status)) return;
@@ -487,9 +529,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     const allResolved = session.summary.total > 0 && session.summary.pending === 0;
     handoffStatus.textContent = session.status === "ready" ? (allResolved ? messages.allResolved : messages.handoffReady) : "";
     handoffButton.textContent = session.status === "ready" ? messages.editInstructions : messages.requestChanges;
-    const workerRunning = Boolean(workerTask && runningWorkerStatuses.has(workerTask.status));
+    const workerRunning = workerStarting || Boolean(workerTask && runningWorkerStatuses.has(workerTask.status));
     handoffButton.disabled = !hasPendingInstructions(session) || workerRunning;
-    workerContainer.hidden = !workerClient;
+    workerContainer.hidden = false;
+    bridgeStatusText.textContent = workerClient ? `${messages.bridgeConnected} — ${bridgeStatus?.workspace.split(/[\\/]/).pop() ?? "Codex"}` : messages.bridgeDisconnected;
     workerRequestButton.disabled = session.status !== "ready" || !hasPendingInstructions(session) || workerRunning;
     workerResult.hidden = !workerTask;
     if (workerTask) {
@@ -923,6 +966,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     else if (action === "spacing") equalSpacing();
     else if (action === "handoff") toggleHandoff();
     else if (action === "worker-request" || action === "worker-retry") void startWorkerTask();
+    else if (action === "pairing-settings") openPairing(false);
+    else if (action === "check-pairing") void checkPairing();
+    else if (action === "approve-pairing") void approvePairing();
+    else if (action === "close-pairing") { pendingWorkerStart = false; clearPairingSecret(); pairingDialog.close(); render(); }
     else if (action === "worker-cancel") void cancelWorkerTask();
     else if (action === "end-review") requestEndReview();
     else if (action === "cancel-end") { endDialog.close(); endReviewButton.focus(); }
@@ -1088,7 +1135,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     render();
   }
   function destroy(): void {
-    destroyed = true; workerStream?.abort(); stop(); clear(); unregisterTools(); detachScrollSync();
+    destroyed = true; workerStream?.abort(); clearPairingSecret(); if (pairingDialog.open) pairingDialog.close(); workerClient = null; bridgeStatus = null; stop(); clear(); unregisterTools(); detachScrollSync();
     compareFrame.removeEventListener("load", onCompareLoad);
     editedSideFrame.removeEventListener("load", onCompareLoad);
     originalSideFrame.removeEventListener("load", onCompareLoad);

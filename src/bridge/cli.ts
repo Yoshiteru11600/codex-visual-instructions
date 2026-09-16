@@ -9,6 +9,6 @@ if (!origins.length) throw new Error("At least one exact --origin is required");
 const codexCli = valueAfter("--codex-cli");
 const bridge = await startBridge({ workspace, origins, ...(codexCli ? { codexCli } : {}) });
 // This one-time descriptor is the handoff mechanism. Diagnostics never include the token.
-process.stdout.write(`${JSON.stringify({ endpoint: `http://127.0.0.1:${bridge.port}`, capabilityToken: bridge.token })}\n`);
+process.stdout.write(`${JSON.stringify(bridge.descriptor)}\n`);
 const close = async (): Promise<void> => { await bridge.close(); process.exit(0); };
 process.once("SIGINT", () => { void close(); }); process.once("SIGTERM", () => { void close(); });

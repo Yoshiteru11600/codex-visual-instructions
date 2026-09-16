@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import type { ReviewSession } from "../../src";
-import { AppServerClient, ReviewTaskManager, resolveCodexCli, startBridge, validateReviewSession, validateWorkspace, workerPrompt } from "../../src/bridge";
+import { AppServerClient, PairingSession, ReviewTaskManager, resolveCodexCli, startBridge, validateReviewSession, validateWorkspace, workerPrompt } from "../../src/bridge";
 
 const session = (): ReviewSession => ({
   version: 1, sessionId: "review-1", route: "/", createdAt: "now", status: "ready", confirmedAt: "later",
@@ -227,6 +227,11 @@ describe("review task lifecycle", () => {
 });
 
 describe("bridge security and validation", () => {
+  it("expires pairing tokens and consumes them once before issuing a distinct runtime token", () => {
+    let now = 1_000; const pairing = new PairingSession("http://127.0.0.1:5182", "http://localhost:5173", "C:\\app", { now: () => now, ttlMs: 300_000, random: () => "pairing" });
+    expect(pairing.verify("pairing", now)).toBe("valid"); const runtime = pairing.approve("pairing", () => "runtime"); expect(runtime).toBe("runtime"); expect(pairing.verify("pairing", now)).toBe("used"); expect(pairing.isRuntimeToken("pairing")).toBe(false); expect(pairing.isRuntimeToken("runtime")).toBe(true);
+    const expired = new PairingSession("http://127.0.0.1:5182", "http://localhost:5173", "C:\\app", { now: () => now, ttlMs: 1, random: () => "short" }); now += 2; expect(expired.verify("short", now)).toBe("expired");
+  });
   it("validates an existing writable directory and rejects missing or file workspaces", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vi-workspace-")); const file = join(directory, "not-a-directory"); await writeFile(file, "x");
     await expect(validateWorkspace(directory)).resolves.toBe(directory);
@@ -244,12 +249,19 @@ describe("bridge security and validation", () => {
     expect(workerPrompt(session())).toContain("Visual Review session");
   });
   it("binds loopback and rejects bad origins, tokens, CSRF, malformed sessions and arbitrary prompts", async () => {
-    const bridge = await startBridge({ workspace: process.cwd(), origins: ["http://127.0.0.1:5173"], codexCli: process.execPath, capabilityToken: "secret" });
+    const origin = "http://127.0.0.1:5173";
+    const bridge = await startBridge({ workspace: process.cwd(), origins: [origin], codexCli: process.execPath });
     const url = `http://127.0.0.1:${bridge.port}`;
     expect((await fetch(`${url}/review-tasks`, { method: "POST", headers: { origin: "http://evil.test" } })).status).toBe(403);
-    expect((await fetch(`${url}/review-tasks`, { method: "POST", headers: { origin: "http://127.0.0.1:5173" } })).status).toBe(401);
-    expect((await fetch(`${url}/review-tasks`, { method: "POST", headers: { origin: "http://127.0.0.1:5173", authorization: "Bearer secret" } })).status).toBe(403);
-    const secured = { origin: "http://127.0.0.1:5173", authorization: "Bearer secret", "x-codex-visual-csrf": "secret", "content-type": "application/json" };
+    expect((await fetch(`${url}/review-tasks`, { method: "POST", headers: { origin } })).status).toBe(401);
+    const pairingHeaders = { origin, authorization: `Bearer ${bridge.descriptor.pairingToken}` };
+    const preview = await fetch(`${url}/pairing`, { headers: pairingHeaders }); expect(preview.status).toBe(200); expect(JSON.stringify(await preview.json())).not.toContain(bridge.descriptor.pairingToken);
+    const approval = await fetch(`${url}/pairing/approve`, { method: "POST", headers: { ...pairingHeaders, "x-codex-visual-csrf": bridge.descriptor.pairingToken, "content-type": "application/json" }, body: "{}" });
+    const capabilityToken = (await approval.json() as { capabilityToken: string }).capabilityToken; expect(capabilityToken).not.toBe(bridge.descriptor.pairingToken);
+    expect((await fetch(`${url}/status`, { headers: { origin, authorization: `Bearer ${capabilityToken}` } })).status).toBe(200);
+    expect((await fetch(`${url}/pairing/approve`, { method: "POST", headers: { ...pairingHeaders, "x-codex-visual-csrf": bridge.descriptor.pairingToken } })).status).toBe(409);
+    expect((await fetch(`${url}/review-tasks`, { method: "POST", headers: { ...pairingHeaders, "x-codex-visual-csrf": bridge.descriptor.pairingToken } })).status).toBe(401);
+    const secured = { origin, authorization: `Bearer ${capabilityToken}`, "x-codex-visual-csrf": capabilityToken, "content-type": "application/json" };
     expect((await fetch(`${url}/review-tasks`, { method: "POST", headers: secured, body: JSON.stringify({ session: {} }) })).status).toBe(400);
     expect((await fetch(`${url}/prompt`, { method: "POST", headers: secured, body: JSON.stringify({ prompt: "arbitrary" }) })).status).toBe(404);
     await bridge.close();

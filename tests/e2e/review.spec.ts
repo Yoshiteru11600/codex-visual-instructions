@@ -72,6 +72,7 @@ test("starts the local worker only after explicit confirmation and renders its r
     expect(route.request().headers()["x-codex-visual-csrf"]).toBe("test-token");
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ id: "task-1", reviewSessionId: "review", status: "queued", messages: [] }) });
   });
+  await page.route("http://127.0.0.1:9321/status", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ workspace: "C:\\app", readiness: { status: "ready" }, state: "running", activeTask: false }) }));
   await page.route("http://127.0.0.1:9321/review-tasks/task-1/events", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     await route.fulfill({ status: 200, contentType: "application/x-ndjson", body: [
@@ -96,6 +97,23 @@ test("starts the local worker only after explicit confirmation and renders its r
   expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(1);
 });
 
+test("pairs explicitly before starting a worker and keeps the ready session", async ({ page }) => {
+  const endpoint = "http://127.0.0.1:9322"; const pairingToken = "pairing-secret"; const runtimeToken = "runtime-secret";
+  await page.route(`${endpoint}/pairing`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ endpoint, allowedOrigin: "http://127.0.0.1:4173", workspace: "C:\\workspace\\app", expiresAt: "2030-01-01T00:00:00.000Z", readiness: { status: "ready" }, activeTask: false }) }));
+  await page.route(`${endpoint}/pairing/approve`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ capabilityToken: runtimeToken, status: { workspace: "C:\\workspace\\app", readiness: { status: "ready" }, state: "running", activeTask: false } }) }));
+  await page.route(`${endpoint}/status`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ workspace: "C:\\workspace\\app", readiness: { status: "ready" }, state: "running", activeTask: false }) }));
+  await page.route(`${endpoint}/review-tasks`, async (route) => { expect(route.request().headers().authorization).toBe(`Bearer ${runtimeToken}`); await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ id: "paired-task", reviewSessionId: "review", status: "queued", messages: [] }) }); });
+  await page.route(`${endpoint}/review-tasks/paired-task/events`, (route) => route.fulfill({ status: 200, contentType: "application/x-ndjson", body: `${JSON.stringify({ type: "status", status: "completed" })}\n` }));
+  await page.evaluate(() => (window as any).visualReview.start());
+  const host = page.locator("[data-codex-visual-instructions]"); await page.getByTestId("hero-title").click(); await page.keyboard.press("ArrowRight"); await host.locator('[data-action="handoff"]').click();
+  await expect(host.locator("[data-bridge-status]")).toContainText("not connected"); await host.locator('[data-action="worker-request"]').click();
+  const dialog = host.locator("[data-pairing-dialog]"); await expect(dialog).toBeVisible(); expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+  await dialog.locator("[data-pairing-input]").fill(JSON.stringify({ version: 1, endpoint, pairingToken, allowedOrigin: "http://127.0.0.1:4173", workspace: "C:\\workspace\\app", expiresAt: "2030-01-01T00:00:00.000Z" }));
+  await dialog.locator('[data-action="check-pairing"]').click(); await expect(dialog.locator("[data-pairing-summary]")).toContainText("C:\\workspace\\app");
+  await dialog.locator('[data-action="approve-pairing"]').click(); await expect(dialog).toBeHidden(); await expect(host.locator("[data-worker-status]")).toHaveText("Completed");
+  await expect(host.locator("[data-bridge-status]")).toContainText("connected"); expect(await page.evaluate(() => (window as any).visualReview.session.status)).toBe("ready");
+});
+
 test("keeps the worker active and explains when cancellation cannot be confirmed", async ({ page }) => {
   await page.evaluate(async () => {
     (window as any).visualReview.destroy();
@@ -107,6 +125,7 @@ test("keeps the worker active and explains when cancellation cannot be confirmed
   await page.route("http://127.0.0.1:9321/review-tasks", (route) => route.fulfill({
     status: 202, contentType: "application/json", body: JSON.stringify({ id: "task-cancel", reviewSessionId: "review", status: "queued", messages: [] }),
   }));
+  await page.route("http://127.0.0.1:9321/status", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ workspace: "C:\\app", readiness: { status: "ready" }, state: "running", activeTask: false }) }));
   await page.route("http://127.0.0.1:9321/review-tasks/task-cancel/events", (route) => route.fulfill({
     status: 200, contentType: "application/x-ndjson", body: `${JSON.stringify({ type: "status", status: "inspecting" })}\n`,
   }));

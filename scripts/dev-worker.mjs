@@ -31,11 +31,7 @@ const bridge = await startBridge({ workspace, origins: [origin], ...(codexCli ? 
 const viteEntry = resolve(repositoryRoot, "node_modules/vite/bin/vite.js");
 const vite = spawn(process.execPath, [viteEntry, "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
   cwd: repositoryRoot,
-  env: {
-    ...process.env,
-    VITE_CODEX_VISUAL_BRIDGE_ENDPOINT: `http://127.0.0.1:${bridge.port}`,
-    VITE_CODEX_VISUAL_BRIDGE_TOKEN: bridge.token,
-  },
+  env: process.env,
   stdio: "inherit",
   windowsHide: true,
 });
@@ -61,4 +57,4 @@ process.once("SIGINT", () => { void close(); });
 process.once("SIGTERM", () => { void close(); });
 
 console.log(`Visual Review development server: ${origin}/examples/vanilla/`);
-console.log("The Local Bridge token is kept in the child-process environment and is not printed or persisted.");
+console.log(`Pairing descriptor (shown once): ${JSON.stringify(bridge.descriptor)}`);

@@ -1,4 +1,5 @@
-import type { ReviewSession, ReviewTask, ReviewTaskEvent, WorkerBridgeConfig } from "./types";
+import type { BridgeErrorBody, BridgeStatus, ReviewSession, ReviewTask, ReviewTaskEvent, WorkerBridgeConfig } from "./types";
+import { BridgeClientError } from "./pairing-client";
 
 const headers = (config: WorkerBridgeConfig, stateChanging = false): HeadersInit => ({
   authorization: `Bearer ${config.capabilityToken}`,
@@ -8,12 +9,18 @@ const headers = (config: WorkerBridgeConfig, stateChanging = false): HeadersInit
 async function checked(response: Response): Promise<Response> {
   if (response.ok) return response;
   let message = `Local Bridge returned ${response.status}`;
-  try { message = (await response.json() as { error?: string }).error ?? message; } catch { /* use status */ }
-  throw new Error(message);
+  let code = "protocol_error";
+  try { const body = await response.json() as Partial<BridgeErrorBody> & { error?: string }; message = body.message ?? body.error ?? message; code = body.code ?? code; } catch { /* use status */ }
+  throw new BridgeClientError(code, message, response.status);
 }
 
 export class ReviewWorkerClient {
   constructor(private readonly config: WorkerBridgeConfig) {}
+
+  async status(): Promise<BridgeStatus> {
+    const response = await checked(await fetch(`${this.config.endpoint}/status`, { headers: headers(this.config) }));
+    return response.json() as Promise<BridgeStatus>;
+  }
 
   async createTask(session: ReviewSession): Promise<ReviewTask> {
     const response = await checked(await fetch(`${this.config.endpoint}/review-tasks`, {

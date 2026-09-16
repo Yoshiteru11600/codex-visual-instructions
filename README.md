@@ -61,18 +61,7 @@ pnpm build
 pnpm bridge -- --workspace /absolute/path/to/project --origin http://127.0.0.1:5173
 ```
 
-The bridge prints a one-time JSON connection descriptor. Pass it at runtime rather than committing it:
-
-```ts
-install({
-  workerBridge: {
-    endpoint: "http://127.0.0.1:<dynamic-port>",
-    capabilityToken: "<one-time-token>",
-  },
-});
-```
-
-The Vanilla example also accepts `VITE_CODEX_VISUAL_BRIDGE_ENDPOINT` and `VITE_CODEX_VISUAL_BRIDGE_TOKEN` as process-local development variables. Do not put the token in a tracked `.env` file.
+The bridge prints one short-lived JSON pairing descriptor. Confirm the review, select **Ask Codex to implement**, paste the descriptor, review the exact page Origin, loopback endpoint, and workspace, then explicitly approve the connection. The pairing token expires after five minutes and can be used only once. Approval issues a separate runtime token that remains in browser memory only; reload or Bridge restart requires pairing again. Never put either token in storage, a URL, a repository file, or an `.env` file.
 
 For local end-to-end testing, start Vite and the Local Bridge together from a normal terminal:
 
@@ -82,9 +71,11 @@ pnpm dev:worker
 npm run dev:worker
 ```
 
-The launcher chooses an available loopback port, starts the Bridge for this repository, and passes the one-time connection details only through Vite's process environment. It prints the Vanilla example URL but never prints or persists the token. Use `pnpm dev:worker -- --port 5181` or `npm run dev:worker -- 5181` to request a fixed port, or `--workspace <absolute-path>` when reviewing another project served by this checkout.
+The launcher chooses an available loopback port, starts the Bridge for this repository, and prints the pairing descriptor once. Use `pnpm dev:worker -- --port 5181` or `npm run dev:worker -- 5181` to request a fixed port, or `--workspace <absolute-path>` when reviewing another project served by this checkout.
 
-The architecture is `Visual Instructions → loopback Local Bridge → stdio Codex App Server → isolated worker thread`. The bridge binds only to `127.0.0.1`, validates the exact browser Origin and capability/CSRF token, fixes the worker directory to the configured project, permits one write task per workspace, and does not expose an arbitrary-prompt route. The token is not persisted. Worker commands use workspace-write with network access disabled and do not escalate beyond that sandbox. Clicking **Ask Codex to implement** after confirmation is the explicit point at which Codex may modify source files.
+The architecture is `Visual Instructions → loopback Local Bridge → stdio Codex App Server → isolated worker thread`. The bridge binds only to `127.0.0.1`, validates the exact browser Origin and pairing/runtime token, fixes the worker directory to the configured project, permits one write task per workspace, and does not expose an arbitrary-prompt route. Tokens are not persisted. Worker commands use workspace-write with network access disabled and do not escalate beyond that sandbox. Clicking **Ask Codex to implement** and approving the pairing is the explicit point at which Codex may modify source files.
+
+`localhost` and `127.0.0.1`, different schemes, and different ports are distinct Origins. Restart the Bridge with the exact page Origin when they do not match. An invalid workspace or unavailable Codex CLI is reported in the pairing preview without granting a runtime token. The open Shadow DOM is UI isolation, not a security boundary: scripts running in the reviewed page share its Origin and can observe in-page state. Use this Alpha only with pages and code you trust.
 
 Agent messages stream back into the overlay. Completion does not automatically resolve or discard review annotations; visually verify the result first. Cancel interrupts the current turn and never performs an automatic Git reset.
 

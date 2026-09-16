@@ -127,6 +127,7 @@ export interface InstallOptions {
   config?: PartialDeep<VisualReviewConfig>;
   startActive?: boolean;
   storageKey?: string;
+  /** @deprecated Use the explicit pairing flow instead. */
   workerBridge?: WorkerBridgeConfig;
 }
 
@@ -134,6 +135,15 @@ export interface WorkerBridgeConfig {
   endpoint: string;
   capabilityToken: string;
 }
+
+export type BridgeReadiness =
+  | { status: "ready" }
+  | { status: "workspace_invalid" | "cli_unavailable"; message: string };
+export type BridgeErrorCode = "invalid_descriptor" | "pairing_expired" | "pairing_already_used" | "origin_mismatch" | "invalid_token" | "bridge_not_ready" | "workspace_invalid" | "cli_unavailable" | "workspace_busy" | "review_session_already_running" | "review_session_invalid" | "task_not_found" | "protocol_error";
+export interface BridgeErrorBody { code: BridgeErrorCode; message: string }
+export interface BridgePairingDescriptor { version: 1; endpoint: string; pairingToken: string; allowedOrigin: string; workspace: string; expiresAt: string }
+export interface BridgePairingPreview { endpoint: string; allowedOrigin: string; workspace: string; expiresAt: string; readiness: BridgeReadiness; activeTask: boolean }
+export interface BridgeStatus { workspace: string; readiness: BridgeReadiness; state: "running"; activeTask: boolean; taskStatus?: ReviewTaskStatus }
 
 export type ReviewTaskStatus =
   | "queued" | "accepted" | "inspecting" | "implementing" | "verifying"
