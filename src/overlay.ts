@@ -353,6 +353,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
     render();
   };
   const clearPairingSecret = (): void => { pairingInput.value = ""; pairingDescriptor = null; pairingPreview = null; pairingSummary.hidden = true; pairingSummary.replaceChildren(); pairingApproveButton.hidden = true; };
+  const markWorkerDisconnected = (): void => {
+    if (!workerTask || !runningWorkerStatuses.has(workerTask.status)) return;
+    workerTask = { ...workerTask, status: "failed", error: { code: "bridge_disconnected", message: messages.bridgeDisconnectedDuringTask } };
+  };
   const disconnectBridge = (reason: "not_paired" | "bridge_unreachable" | "token_invalid"): void => { workerStream?.abort(); connection = { kind: "disconnected", reason }; clearPairingSecret(); render(); };
   const isConnectionFailure = (error: unknown): boolean => error instanceof TypeError || (error instanceof BridgeClientError && (error.status === 401 || error.status === 403 || error.code === "invalid_token"));
   const openPairing = (startAfterApproval: boolean): void => { pendingWorkerStart = startAfterApproval; pairingError.textContent = ""; clearPairingSecret(); pairingDialog.showModal(); pairingInput.focus(); render(); };
@@ -391,7 +395,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
       await workerClient.stream(workerTask.id, applyWorkerEvent, workerStream.signal);
     } catch (error) {
       if (workerStream.signal.aborted) return;
-      if (isConnectionFailure(error)) { disconnectBridge(error instanceof BridgeClientError && (error.status === 401 || error.status === 403) ? "token_invalid" : "bridge_unreachable"); openPairing(true); return; }
+      if (isConnectionFailure(error)) { markWorkerDisconnected(); disconnectBridge(error instanceof BridgeClientError && (error.status === 401 || error.status === 403) ? "token_invalid" : "bridge_unreachable"); openPairing(true); return; }
       workerTask = workerTask ?? { id: "local", reviewSessionId: session.sessionId, status: "failed", messages: [] };
       workerTask.status = "failed"; workerTask.error = { code: "bridge_error", message: error instanceof Error ? error.message : String(error) }; render();
     } finally { workerStarting = false; render(); }
@@ -403,7 +407,7 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
       workerTask = await workerClient.cancel(workerTask.id);
       if (workerTask.status === "cancelled") workerStream?.abort();
     } catch (error) {
-      if (isConnectionFailure(error)) { disconnectBridge(error instanceof BridgeClientError ? "token_invalid" : "bridge_unreachable"); return; }
+      if (isConnectionFailure(error)) { markWorkerDisconnected(); disconnectBridge(error instanceof BridgeClientError ? "token_invalid" : "bridge_unreachable"); return; }
       workerTask.error = { code: "cancel_failed", message: `${messages.cancelFailed} ${error instanceof Error ? error.message : String(error)}` };
     }
     render();

@@ -15,6 +15,7 @@ export const ru: Record<keyof typeof en, string> = {
   askCodex: "Попросить Codex реализовать", codex: "Codex", waiting: "Ожидание…", working: "Выполняется…",
   bridgeDisconnected: "○ Codex не подключён — настройки", bridgeConnected: "● Codex подключён",
   bridgeUnreachable: "○ Local Bridge недоступен — переподключить", bridgeExpired: "○ Срок подключения истёк — переподключить",
+  bridgeDisconnectedDuringTask: "Соединение с Bridge потеряно, поэтому состояние задачи неизвестно. Переподключитесь и повторите попытку.",
   pairingTitle: "Подключить Local Bridge", pairingHelp: "Вставьте одноразовые данные подключения из Bridge CLI и проверьте origin страницы, endpoint и workspace.",
   checkConnection: "Проверить подключение", approveConnection: "Разрешить подключение", currentOrigin: "Origin текущей страницы", localBridge: "Local Bridge", targetWorkspace: "Целевой workspace",
   completed: "Завершено", failed: "Ошибка", cancelled: "Отменено", retry: "Повторить",
