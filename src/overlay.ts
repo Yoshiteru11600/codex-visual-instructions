@@ -324,7 +324,10 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   const applyWorkerEvent = (event: ReviewTaskEvent): void => {
     if (!workerTask) return;
     if (event.type === "snapshot") workerTask = event.task;
-    else if (event.type === "status") workerTask.status = event.status;
+    else if (event.type === "status") {
+      workerTask.status = event.status;
+      if (!runningWorkerStatuses.has(event.status) && workerTask.error?.code === "cancel_failed") delete workerTask.error;
+    }
     else if (event.type === "agent-message-delta") {
       let message = workerTask.messages.find((entry) => entry.itemId === event.itemId);
       if (!message) { message = { itemId: event.itemId, text: "" }; workerTask.messages.push(message); }
@@ -347,7 +350,13 @@ export function createOverlay(options: InstallOptions = {}): VisualReviewHandle 
   };
   const cancelWorkerTask = async (): Promise<void> => {
     if (!workerClient || !workerTask || !runningWorkerStatuses.has(workerTask.status)) return;
-    try { await workerClient.cancel(workerTask.id); } finally { workerStream?.abort(); workerTask.status = "cancelled"; render(); }
+    try {
+      workerTask = await workerClient.cancel(workerTask.id);
+      if (workerTask.status === "cancelled") workerStream?.abort();
+    } catch (error) {
+      workerTask.error = { code: "cancel_failed", message: `${messages.cancelFailed} ${error instanceof Error ? error.message : String(error)}` };
+    }
+    render();
   };
   const saveLocalPreference = (patch: Record<string, unknown>): void => {
     try {

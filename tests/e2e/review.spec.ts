@@ -96,6 +96,33 @@ test("starts the local worker only after explicit confirmation and renders its r
   expect(await page.evaluate(() => (window as any).visualReview.session.annotations.length)).toBe(1);
 });
 
+test("keeps the worker active and explains when cancellation cannot be confirmed", async ({ page }) => {
+  await page.evaluate(async () => {
+    (window as any).visualReview.destroy();
+    const load = new Function("return import('/dist/index.js')") as () => Promise<typeof import("../../src")>;
+    const { install } = await load();
+    (window as any).visualReview = install({ workerBridge: { endpoint: "http://127.0.0.1:9321", capabilityToken: "test-token" } });
+    (window as any).visualReview.start();
+  });
+  await page.route("http://127.0.0.1:9321/review-tasks", (route) => route.fulfill({
+    status: 202, contentType: "application/json", body: JSON.stringify({ id: "task-cancel", reviewSessionId: "review", status: "queued", messages: [] }),
+  }));
+  await page.route("http://127.0.0.1:9321/review-tasks/task-cancel/events", (route) => route.fulfill({
+    status: 200, contentType: "application/x-ndjson", body: `${JSON.stringify({ type: "status", status: "inspecting" })}\n`,
+  }));
+  await page.route("http://127.0.0.1:9321/review-tasks/task-cancel/cancel", (route) => route.fulfill({
+    status: 500, contentType: "application/json", body: JSON.stringify({ error: "interrupt failed" }),
+  }));
+  const host = page.locator("[data-codex-visual-instructions]");
+  await page.getByTestId("hero-title").click(); await page.keyboard.press("ArrowRight");
+  await host.locator('[data-action="handoff"]').click(); await host.locator('[data-action="worker-request"]').click();
+  await expect(host.locator("[data-worker-status]")).toHaveText("Working…");
+  await host.locator('[data-action="worker-cancel"]').click();
+  await expect(host.locator("[data-worker-status]")).not.toHaveText("Cancelled");
+  await expect(host.locator(".worker-message").last()).toContainText("task may still be running");
+  await expect(host.locator(".worker-message").last()).toContainText("interrupt failed");
+});
+
 test("supports multi-select, hide, compare and locale controls", async ({ page }) => {
   await page.evaluate(() => (window as any).visualReview.start());
   await page.locator(".actions button").nth(0).click();

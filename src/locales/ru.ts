@@ -14,6 +14,7 @@ export const ru: Record<keyof typeof en, string> = {
   handoffReady: "✓ Инструкции подтверждены. Попросите Codex реализовать их.",
   askCodex: "Попросить Codex реализовать", codex: "Codex", waiting: "Ожидание…", working: "Выполняется…",
   completed: "Завершено", failed: "Ошибка", cancelled: "Отменено", retry: "Повторить",
+  cancelFailed: "Не удалось подтвердить отмену. Задача Codex может всё ещё выполняться.",
   cancelWorker: "Отменить задачу Codex", workerRunningEnd: "Codex ещё работает. Отмените задачу перед завершением проверки; уже внесённые изменения исходного кода не будут отменены.",
   allResolved: "✓ Все инструкции выполнены",
   view: "Вид", preferences: "Настройки", language: "Язык",

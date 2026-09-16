@@ -32,6 +32,7 @@ export const en = {
   handoffReady: "✓ Instructions confirmed. Ask Codex to implement them.",
   askCodex: "Ask Codex to implement", codex: "Codex", waiting: "Waiting…", working: "Working…",
   completed: "Completed", failed: "Failed", cancelled: "Cancelled", retry: "Retry",
+  cancelFailed: "Cancellation could not be confirmed. The Codex task may still be running.",
   cancelWorker: "Cancel Codex task", workerRunningEnd: "Codex is still working. Cancel the task before ending the review; source changes already made will not be rolled back.",
   allResolved: "✓ All instructions resolved",
   view: "View",

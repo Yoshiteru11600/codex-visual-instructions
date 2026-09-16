@@ -1,4 +1,17 @@
+import { constants } from "node:fs";
+import { access, stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { ReviewSession } from "../types";
+
+export async function validateWorkspace(value: string): Promise<string> {
+  const workspace = resolve(value);
+  let info;
+  try { info = await stat(workspace); } catch { throw new Error(`Workspace does not exist: ${workspace}`); }
+  if (!info.isDirectory()) throw new Error(`Workspace is not a directory: ${workspace}`);
+  try { await access(workspace, constants.R_OK | constants.W_OK); }
+  catch { throw new Error(`Codex cannot write to this workspace with the current permissions: ${workspace}`); }
+  return workspace;
+}
 
 export function validateReviewSession(value: unknown): ReviewSession {
   if (!value || typeof value !== "object") throw new Error("ReviewSession must be an object");

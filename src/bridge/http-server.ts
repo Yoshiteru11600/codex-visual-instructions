@@ -1,12 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
-import { resolve } from "node:path";
 import type { AddressInfo } from "node:net";
 import type { ReviewTaskEvent } from "../types";
 import { AppServerClient } from "./app-server-client";
 import { resolveCodexCli } from "./cli-resolver";
 import { ReviewTaskManager } from "./task-manager";
-import { validateReviewSession } from "./validation";
+import { validateReviewSession, validateWorkspace } from "./validation";
 
 export interface BridgeOptions { workspace: string; origins: string[]; codexCli?: string; capabilityToken?: string; timeoutMs?: number }
 export interface RunningBridge { port: number; token: string; close(): Promise<void> }
@@ -18,7 +17,7 @@ const readJson = async (request: IncomingMessage): Promise<any> => {
 };
 
 export async function startBridge(options: BridgeOptions): Promise<RunningBridge> {
-  const workspace = resolve(options.workspace); const executable = await resolveCodexCli(options.codexCli);
+  const workspace = await validateWorkspace(options.workspace); const executable = await resolveCodexCli(options.codexCli);
   const token = options.capabilityToken ?? randomBytes(32).toString("base64url");
   const origins = new Set(options.origins);
   const manager = new ReviewTaskManager({ workspace, makeClient: () => new AppServerClient({ executable, ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }) }) });
@@ -39,7 +38,10 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
       const match = /^\/review-tasks\/([^/]+)\/(events|cancel)$/.exec(url.pathname);
       if (match?.[2] === "events" && request.method === "GET") {
         response.writeHead(200, { "content-type": "application/x-ndjson", "cache-control": "no-store", connection: "keep-alive" });
-        const write = (event: ReviewTaskEvent): void => { if (!response.destroyed) response.write(`${JSON.stringify(event)}\n`); if (manager.isTerminal(match[1]!)) response.end(); };
+        const write = (event: ReviewTaskEvent): void => {
+          if (!response.destroyed) response.write(`${JSON.stringify(event)}\n`);
+          if (event.type === "status" && ["completed", "failed", "cancelled"].includes(event.status)) response.end();
+        };
         const unsubscribe = manager.subscribe(match[1]!, write); request.on("close", unsubscribe); return;
       }
       if (match?.[2] === "cancel" && request.method === "POST") { await manager.cancel(match[1]!); json(response, 200, manager.get(match[1]!)); return; }

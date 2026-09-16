@@ -39,9 +39,11 @@ export class ReviewWorkerClient {
     if (buffer.trim()) onEvent(JSON.parse(buffer) as ReviewTaskEvent);
   }
 
-  async cancel(taskId: string): Promise<void> {
-    await checked(await fetch(`${this.config.endpoint}/review-tasks/${encodeURIComponent(taskId)}/cancel`, {
-      method: "POST", headers: headers(this.config, true), body: "{}",
+  async cancel(taskId: string): Promise<ReviewTask> {
+    const signal = AbortSignal.timeout(10_000);
+    const response = await checked(await fetch(`${this.config.endpoint}/review-tasks/${encodeURIComponent(taskId)}/cancel`, {
+      method: "POST", headers: headers(this.config, true), body: "{}", signal,
     }));
+    return response.json() as Promise<ReviewTask>;
   }
 }

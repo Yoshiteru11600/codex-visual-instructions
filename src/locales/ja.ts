@@ -33,6 +33,7 @@ export const ja: Record<keyof typeof en, string> = {
   handoffReady: "✓ 指示を確定しました。Codexに実装を依頼してください",
   askCodex: "Codexに修正を依頼", codex: "Codex", waiting: "待機中…", working: "作業中…",
   completed: "完了", failed: "失敗", cancelled: "キャンセル済み", retry: "再試行",
+  cancelFailed: "キャンセルを確認できませんでした。Codexの作業が継続している可能性があります。",
   cancelWorker: "Codexの作業をキャンセル", workerRunningEnd: "Codexが作業中です。レビューを終了する前に作業をキャンセルしてください。すでに行われたソース変更は自動で元に戻りません。",
   allResolved: "✓ すべての指示を解決しました",
   view: "表示",

@@ -14,6 +14,7 @@ export const fr: Record<keyof typeof en, string> = {
   handoffReady: "✓ Instructions confirmées. Demandez à Codex de les implémenter.",
   askCodex: "Demander à Codex d’implémenter", codex: "Codex", waiting: "En attente…", working: "En cours…",
   completed: "Terminé", failed: "Échec", cancelled: "Annulé", retry: "Réessayer",
+  cancelFailed: "L’annulation n’a pas pu être confirmée. La tâche Codex est peut-être toujours en cours.",
   cancelWorker: "Annuler la tâche Codex", workerRunningEnd: "Codex travaille encore. Annulez la tâche avant de terminer la revue ; les changements de source déjà effectués ne seront pas annulés.",
   allResolved: "✓ Toutes les instructions sont résolues",
   view: "Affichage", preferences: "Préférences", language: "Langue",

@@ -4,7 +4,7 @@ import type { ReviewSession, ReviewTask, ReviewTaskEvent, ReviewTaskStatus } fro
 import { AppServerClient } from "./app-server-client";
 import { workerPrompt } from "./validation";
 
-type InternalTask = ReviewTask & { threadId?: string; turnId?: string; events: ReviewTaskEvent[]; emitter: EventEmitter; client: AppServerClient };
+type InternalTask = ReviewTask & { threadId?: string; turnId?: string; events: ReviewTaskEvent[]; emitter: EventEmitter; client: AppServerClient; cancelRequested?: boolean };
 const active = new Set<ReviewTaskStatus>(["queued", "accepted", "inspecting", "implementing", "verifying"]);
 
 const firstString = (value: any, ...paths: string[]): string | undefined => {
@@ -33,14 +33,22 @@ export class ReviewTaskManager {
   subscribe(id: string, listener: (event: ReviewTaskEvent) => void): () => void {
     const task = this.tasks.get(id); if (!task) throw new Error("ReviewTask not found");
     for (const event of task.events) listener(event);
+    if (!active.has(task.status)) return () => {};
     task.emitter.on("event", listener); return () => task.emitter.off("event", listener);
   }
   isTerminal(id: string): boolean { const status = this.tasks.get(id)?.status; return Boolean(status && !active.has(status)); }
   async cancel(id: string): Promise<void> {
     const task = this.tasks.get(id); if (!task) throw new Error("ReviewTask not found");
     if (!active.has(task.status)) return;
-    if (task.threadId && task.turnId) await task.client.request("turn/interrupt", { threadId: task.threadId, turnId: task.turnId });
-    this.setStatus(task, "cancelled"); await task.client.stop();
+    task.cancelRequested = true;
+    try {
+      if (task.threadId && task.turnId) await task.client.request("turn/interrupt", { threadId: task.threadId, turnId: task.turnId });
+      if (active.has(task.status)) this.setStatus(task, "cancelled");
+      if (task.status === "cancelled") await task.client.stop();
+    } catch (error) {
+      task.cancelRequested = false;
+      throw error;
+    }
   }
   async close(): Promise<void> { await Promise.all([...this.tasks.values()].map((task) => task.client.stop())); }
 
@@ -50,6 +58,7 @@ export class ReviewTaskManager {
       task.client.on("protocol-error", (error: Error) => this.fail(task, "protocol_error", error.message));
       task.client.on("failure", (error: Error) => { if (active.has(task.status)) this.fail(task, "process_error", error.message); });
       await task.client.start(); this.setStatus(task, "accepted");
+      await this.preflightWorkspace(task.client);
       const thread = await task.client.request("thread/start", {
         cwd: this.options.workspace, approvalPolicy: "never", sandbox: "workspace-write",
         config: { sandbox_workspace_write: { writable_roots: [], network_access: false } },
@@ -85,12 +94,25 @@ export class ReviewTaskManager {
     }
     if (method === "turn/completed") {
       const turnStatus = firstString(params, "turn.status", "status");
-      if (turnStatus && !["completed", "success", "succeeded"].includes(turnStatus)) this.fail(task, "turn_failed", `Codex turn ended with status ${turnStatus}`);
+      if (turnStatus === "interrupted" && task.cancelRequested) { this.setStatus(task, "cancelled"); void task.client.stop(); }
+      else if (turnStatus && !["completed", "success", "succeeded"].includes(turnStatus)) this.fail(task, "turn_failed", `Codex turn ended with status ${turnStatus}`);
       else { this.setStatus(task, "completed"); void task.client.stop(); }
     }
   }
+  private async preflightWorkspace(client: AppServerClient): Promise<void> {
+    const command = process.platform === "win32" ? ["cmd.exe", "/d", "/c", "cd"] : ["pwd"];
+    try {
+      const result = await client.request("command/exec", {
+        command, cwd: this.options.workspace,
+        sandboxPolicy: { type: "workspaceWrite", writableRoots: [this.options.workspace], networkAccess: false }, timeoutMs: 10_000,
+      });
+      if (typeof result?.exitCode === "number" && result.exitCode !== 0) throw new Error(result.stderr || `exit code ${result.exitCode}`);
+    } catch (error) {
+      throw new Error(`Codex cannot write to this workspace with the current permissions. ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   private setStatus(task: InternalTask, status: ReviewTaskStatus): void { if (task.status === status) return; task.status = status; this.publish(task, { type: "status", status }); }
-  private fail(task: InternalTask, code: string, message: string): void { task.error = { code, message }; this.setStatus(task, "failed"); this.publish(task, { type: "error", error: task.error }); void task.client.stop(); }
+  private fail(task: InternalTask, code: string, message: string): void { task.error = { code, message }; this.publish(task, { type: "error", error: task.error }); this.setStatus(task, "failed"); void task.client.stop(); }
   private publish(task: InternalTask, event: ReviewTaskEvent): void { task.events.push(event); task.emitter.emit("event", event); }
   private publicTask(task: InternalTask): ReviewTask { return { id: task.id, reviewSessionId: task.reviewSessionId, status: task.status, messages: task.messages.map((message) => ({ ...message })), ...(task.error ? { error: { ...task.error } } : {}) }; }
 }
